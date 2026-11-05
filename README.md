@@ -153,6 +153,23 @@ Client Browser
 
 ---
 
+## 📊 CLI Data Export & Reporting
+
+Export aggregated incident records directly to CSV or JSON for compliance reviews or internal analytics:
+
+```bash
+# Export last 30 days as JSON
+php src/tools/export-telemetry.php --format=json --days=30
+
+# Export last 7 days as CSV to a file
+php src/tools/export-telemetry.php --format=csv --days=7 --output=reports/errors.csv
+
+# Export specific service events
+php src/tools/export-telemetry.php --type=csp --service=web
+```
+
+---
+
 ## 📄 License
 
 MIT License © 2026 takaodev
