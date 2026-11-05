@@ -1,0 +1,17 @@
+{
+  "$schema": "https://manage.takao.me/schemas/service.schema.json",
+  "id": "dash",
+  "name": "統合テレメトリ & トラフィック監視ダッシュボード",
+  "englishName": "Unified Telemetry & Traffic Dashboard",
+  "description": "全15サイトのアクセス統計 (PV/訪問数)・CSP違反・クライアント実行時エラーを横断監視・分析するリアルタイムダッシュボード",
+  "category": "Monitoring",
+  "categoryLabel": "監視・統計",
+  "icon": "activity",
+  "status": "active",
+  "statusLabel": "稼働中",
+  "path": "/dash/",
+  "version": "1.1.0",
+  "tags": ["CSP", "NEL", "Telemetry", "Traffic", "Analytics", "RUM", "Security", "reports.takao.me"],
+  "healthCheck": "/dash/",
+  "updatedAt": "2026-10-29"
+}

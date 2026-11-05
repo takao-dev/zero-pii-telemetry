@@ -1,0 +1,3 @@
+RewriteEngine On
+# Defense in depth for legacy files. The configured database must still live outside DocumentRoot.
+RewriteRule ^(?:data(?:/|$)|config\.json$|.*\.(?:sqlite(?:-wal|-shm)?|db|bak)$) - [F,L,NC]

@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>統合テレメトリ & トラフィック監視ダッシュボード | dash</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: rgba(30, 41, 59, 0.75);
+      --surface-card: #1e293b;
+      --border: rgba(255, 255, 255, 0.1);
+      --border-highlight: rgba(99, 102, 241, 0.4);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-bg: rgba(99, 102, 241, 0.15);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.15);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.15);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --info: #06b6d4;
+      --info-bg: rgba(6, 182, 212, 0.15);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    [data-theme="light"] {
+      --bg: #f8fafc;
+      --surface: rgba(255, 255, 255, 0.9);
+      --surface-card: #ffffff;
+      --border: rgba(0, 0, 0, 0.08);
+      --border-highlight: rgba(99, 102, 241, 0.3);
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --primary-bg: #e0e7ff;
+      --danger-bg: #fee2e2;
+      --warning-bg: #fef3c7;
+      --success-bg: #d1fae5;
+      --info-bg: #cffafe;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-family);
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .container { max-width: 1320px; margin: 0 auto; padding: 2rem 1.5rem; width: 100%; flex: 1; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .header-title { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .header-title h1 { font-size: 1.5rem; font-weight: 700; }
+    .badge-endpoint {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+    .nav-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.45rem 0.9rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface-card);
+      color: var(--text);
+      transition: all 0.2s;
+      text-decoration: none;
+    }
+    .btn:hover { border-color: var(--primary); }
+    .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-success { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+    .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
+    .tab-btn { background: var(--surface); }
+    .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* KPI Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      backdrop-filter: blur(12px);
+      transition: border-color 0.2s;
+    }
+    .card:hover { border-color: var(--border-highlight); }
+    .kpi-label { font-size: 0.8rem; color: var(--text-muted); font-weight: 600; margin-bottom: 0.5rem; }
+    .kpi-value { font-size: 1.85rem; font-weight: 800; display: flex; align-items: baseline; gap: 0.35rem; }
+    .kpi-value span { font-size: 0.9rem; font-weight: 500; color: var(--text-muted); }
+
+    /* Toolbar */
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+      flex-wrap: wrap;
+    }
+    .search-input {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 0.45rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      min-width: 240px;
+    }
+    .search-input:focus { outline: none; border-color: var(--primary); }
+
+    /* Table styles */
+    .table-container { overflow-x: auto; border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem; }
+    th {
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      font-weight: 600;
+      white-space: nowrap;
+      user-select: none;
+    }
+    th.sortable { cursor: pointer; }
+    th.sortable:hover { color: var(--text); }
+    td { padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr.site-row { cursor: pointer; transition: background 0.15s; }
+    tr.site-row:hover td { background: rgba(255,255,255,0.03); }
+    [data-theme="light"] tr.site-row:hover td { background: rgba(0,0,0,0.02); }
+
+    .site-expand-row td {
+      background: rgba(0,0,0,0.15);
+      padding: 1.25rem 1.5rem;
+      border-bottom: 2px solid var(--border);
+    }
+    [data-theme="light"] .site-expand-row td { background: rgba(0,0,0,0.03); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-critical { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+    .badge-warning { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+    .badge-info { background: var(--info-bg); color: var(--info); }
+    .badge-success { background: var(--success-bg); color: var(--success); }
+    .badge-resolved { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); border: 1px solid rgba(148, 163, 184, 0.3); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.8rem; }
+
+    /* Middle Panels */
+    .panels-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    @media (max-width: 860px) { .panels-grid { grid-template-columns: 1fr; } }
+    .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .panel-title { font-size: 1rem; font-weight: 700; }
+
+    /* Bars */
+    .bar-item { margin-bottom: 0.85rem; }
+    .bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.25rem; }
+    .bar-track { height: 8px; background: rgba(255,255,255,0.06); border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.4s ease; }
+
+    /* Top pages cards */
+    .top-pages-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+    .top-page-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem 0.85rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 1.5rem;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+    #collection-status {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.6rem 1rem;
+      font-size: 0.85rem;
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-card);
+      text-align: center;
+    }
+    #collection-status.status-observed {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--success);
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+    #collection-status.status-warning {
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--warning);
+      border-color: rgba(245, 158, 11, 0.2);
+    }
+    #collection-status.status-danger {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <p id="collection-status" role="status">収集状態は未確認です。レポート0件だけでは正常稼働を判定できません。</p>
+  <div class="container">
+    <header>
+      <div>
+        <div class="header-title">
+          <a href="../" class="btn" title="manage.takao.me ポータルへ戻る">← ポータル</a>
+          <h1>統合テレメトリ & トラフィック監視 (dash)</h1>
+          <span class="badge-endpoint">reports.takao.me &bull; Operations RUM</span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.35rem;">
+          全15サイトのアクセス統計 (PV/訪問数) と セキュリティ・クライアントエラーの横断監視・トリアージ
+        </p>
+      </div>
+
+      <div class="nav-actions">
+        <select id="service-select" class="btn" style="padding-right: 1.5rem;">
+          <option value="all">すべてのサービス (全15サイト)</option>
+        </select>
+        <button id="export-csv-btn" class="btn" title="サマリーをCSVでダウンロード" onclick="exportCsv()">📥 CSV出力</button>
+        <button id="refresh-btn" class="btn btn-primary">更新</button>
+        <button id="theme-btn" class="btn" title="テーマ切替">🌓</button>
+      </div>
+    </header>
+
+    <!-- Top KPI Summary Cards -->
+    <div class="kpi-grid">
+      <div class="card">
+        <div class="kpi-label">本日総アクセス数 (Today PV)</div>
+        <div class="kpi-value" style="color: var(--primary);" id="kpi-today-pv">0 <span>PV</span></div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">過去7日間アクセス数 (Week PV)</div>
+        <div class="kpi-value" id="kpi-week-pv">0 <span>PV</span></div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">クライアント例外 (JS Errors)</div>
+        <div class="kpi-value" style="color: var(--warning);" id="kpi-client-errors">0 <span>件</span></div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">重大セキュリティ警告 (CSP)</div>
+        <div class="kpi-value" style="color: var(--danger);" id="kpi-critical-csp">0 <span>件</span></div>
+      </div>
+      <div class="card">
+        <div class="kpi-label">監視中サービス数</div>
+        <div class="kpi-value" style="color: var(--success);" id="kpi-services-count">0 <span>サイト</span></div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs & Triage Filter Bar -->
+    <div class="card" style="margin-bottom: 2rem;">
+      <div class="panel-header" style="flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button id="tab-overview" class="btn tab-btn active" onclick="switchTab('overview')">
+            📊 全サイト横断サマリー (<span id="count-overview">15</span>)
+          </button>
+          <button id="tab-csp" class="btn tab-btn" onclick="switchTab('csp')">
+            🛡️ CSPセキュリティ違反 (<span id="count-csp">0</span>)
+          </button>
+          <button id="tab-errors" class="btn tab-btn" onclick="switchTab('errors')">
+            💥 JSクラッシュ・例外 (<span id="count-errors">0</span>)
+          </button>
+        </div>
+
+        <!-- Triage Status Filter -->
+        <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem;">
+          <span style="color: var(--text-muted);">状態:</span>
+          <button id="filter-status-open" class="btn btn-sm btn-primary" onclick="setStatusFilter('open')">未対応</button>
+          <button id="filter-status-all" class="btn btn-sm" onclick="setStatusFilter('all')">すべて</button>
+          <button id="filter-status-resolved" class="btn btn-sm" onclick="setStatusFilter('resolved')">対応済</button>
+        </div>
+      </div>
+
+      <!-- VIEW 1: Cross-Site Overview Matrix -->
+      <div id="view-overview" class="table-container" style="padding-top: 1rem;">
+        <div class="toolbar">
+          <input type="text" id="overview-search" class="search-input" placeholder="🔍 サイト・ドメインで検索...">
+          <div style="display: flex; gap: 0.5rem; align-items: center; font-size: 0.8rem; color: var(--text-muted);">
+            <span>表示期間:</span>
+            <button id="btn-period-day" class="btn btn-sm btn-primary" onclick="setPeriod('day')">本日</button>
+            <button id="btn-period-week" class="btn btn-sm" onclick="setPeriod('week')">週間 (7日)</button>
+            <button id="btn-period-month" class="btn btn-sm" onclick="setPeriod('month')">月間 (30日)</button>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable" onclick="sortOverview('domain')">サイト / ドメイン ⬍</th>
+              <th class="sortable" onclick="sortOverview('views')">アクセス数 (PV / 訪問数) ⬍</th>
+              <th class="sortable" onclick="sortOverview('week')">週間総計 ⬍</th>
+              <th class="sortable" onclick="sortOverview('month')">月間総計 ⬍</th>
+              <th>CDNキャッシュ</th>
+              <th class="sortable" onclick="sortOverview('jsErrors')">JSエラー ⬍</th>
+              <th class="sortable" onclick="sortOverview('csp')">CSP警告 ⬍</th>
+              <th class="sortable" onclick="sortOverview('health')">健全度 ⬍</th>
+              <th style="text-align: center;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="overview-tbody">
+            <tr>
+              <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                データを読み込み中…
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- VIEW 2: CSP Incidents Table -->
+      <div id="view-csp" class="table-container" style="display: none; padding-top: 1rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>最終検知</th>
+              <th>サービス</th>
+              <th>画面</th>
+              <th>ディレクティブ</th>
+              <th>遮断種別</th>
+              <th>累積回数</th>
+              <th>重要度</th>
+              <th>対応状態</th>
+              <th style="text-align: center;">トリアージ</th>
+            </tr>
+          </thead>
+          <tbody id="incidents-body">
+            <tr>
+              <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                該当するCSPレポートはありません。未受信・収集停止との区別は収集状態を確認してください。
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- VIEW 3: Client Errors Table -->
+      <div id="view-errors" class="table-container" style="display: none; padding-top: 1rem;">
+        <table>
+          <thead>
+            <tr>
+              <th>最終発生</th>
+              <th>サービス</th>
+              <th>エラーメッセージ</th>
+              <th>発生元</th>
+              <th>URL</th>
+              <th>累積</th>
+              <th>スタック</th>
+              <th>対応状態</th>
+              <th style="text-align: center;">トリアージ</th>
+            </tr>
+          </thead>
+          <tbody id="client-errors-body">
+            <tr>
+              <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                エラーデータはありません（安定稼働しています）。
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Middle Visualization Panels -->
+    <div class="panels-grid">
+      <div class="card">
+        <div class="panel-header">
+          <div class="panel-title">CSP 違反ディレクティブ分布 (Top Directives)</div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">上位10件</span>
+        </div>
+        <div id="directives-list">
+          <div style="color: var(--text-muted); font-size: 0.85rem;">データを受信していません。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="panel-header">
+          <div class="panel-title">運用・自動保守ステータス</div>
+          <span class="badge badge-success">🟢 自動保護稼働中</span>
+        </div>
+        <div style="display: grid; gap: 0.75rem; font-size: 0.825rem; color: var(--text-muted);">
+          <div>
+            <strong>データ自動パージ (GC):</strong><br>
+            90日経過インシデント自動消去 (確率1/100・SQLite WAL)
+          </div>
+          <div>
+            <strong>通知クールダウン (スパム防止):</strong><br>
+            同一エラーは1時間あたり最大1回のみアラート発報
+          </div>
+          <div>
+            <strong>Edge キャッシュ最適化:</strong><br>
+            Cloudflare 15ゾーン Edge TTL 7日間 (604,800s) 適用
+          </div>
+          <div>
+            <strong>データベース形式:</strong><br>
+            SQLite WAL (上限基準: 100万件 / 1GBでMariaDB検討)
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    manage.takao.me / dash &bull; 統合テレメトリ & トラフィック横断コントロールプレーン
+  </footer>
+
+  <script>
+    const themeBtn = document.getElementById('theme-btn');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const serviceSelect = document.getElementById('service-select');
+    const searchInput = document.getElementById('overview-search');
+
+    let currentTab = 'overview';
+    let currentPeriod = 'day'; // 'day', 'week', 'month'
+    let currentStatus = 'open'; // 'open', 'all', 'resolved'
+    let cachedData = null;
+    let expandedRows = new Set();
+    let sortColumn = 'views';
+    let sortAsc = false;
+
+    // Theme toggle
+    const currentTheme = localStorage.getItem('dash_theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', currentTheme);
+    themeBtn.addEventListener('click', () => {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('dash_theme', next);
+    });
+
+    function switchTab(tab) {
+      currentTab = tab;
+      const tabOverview = document.getElementById('tab-overview');
+      const tabCsp = document.getElementById('tab-csp');
+      const tabErrors = document.getElementById('tab-errors');
+
+      const viewOverview = document.getElementById('view-overview');
+      const viewCsp = document.getElementById('view-csp');
+      const viewErrors = document.getElementById('view-errors');
+
+      tabOverview.classList.toggle('active', tab === 'overview');
+      tabCsp.classList.toggle('active', tab === 'csp');
+      tabErrors.classList.toggle('active', tab === 'errors');
+
+      viewOverview.style.display = (tab === 'overview') ? 'block' : 'none';
+      viewCsp.style.display = (tab === 'csp') ? 'block' : 'none';
+      viewErrors.style.display = (tab === 'errors') ? 'block' : 'none';
+    }
+
+    function setPeriod(period) {
+      currentPeriod = period;
+      document.getElementById('btn-period-day').className = period === 'day' ? 'btn btn-sm btn-primary' : 'btn btn-sm';
+      document.getElementById('btn-period-week').className = period === 'week' ? 'btn btn-sm btn-primary' : 'btn btn-sm';
+      document.getElementById('btn-period-month').className = period === 'month' ? 'btn btn-sm btn-primary' : 'btn btn-sm';
+      renderOverviewTable();
+    }
+
+    function setStatusFilter(st) {
+      currentStatus = st;
+      document.getElementById('filter-status-open').className = st === 'open' ? 'btn btn-sm btn-primary' : 'btn btn-sm';
+      document.getElementById('filter-status-all').className = st === 'all' ? 'btn btn-sm btn-primary' : 'btn btn-sm';
+      document.getElementById('filter-status-resolved').className = st === 'resolved' ? 'btn btn-sm btn-primary' : 'btn btn-sm';
+      fetchMetrics();
+    }
+
+    function toggleExpand(domain, event) {
+      if (event) event.stopPropagation();
+      if (expandedRows.has(domain)) {
+        expandedRows.delete(domain);
+      } else {
+        expandedRows.add(domain);
+      }
+      renderOverviewTable();
+    }
+
+    function sortOverview(col) {
+      if (sortColumn === col) {
+        sortAsc = !sortAsc;
+      } else {
+        sortColumn = col;
+        sortAsc = false;
+      }
+      renderOverviewTable();
+    }
+
+    // Triage Action (Update Incident Status)
+    async function triageIncident(type, id, newStatus) {
+      try {
+        const res = await fetch('api/triage.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, id, status: newStatus })
+        });
+        if (!res.ok) throw new Error('Failed to update status');
+        fetchMetrics();
+      } catch (err) {
+        alert('ステータスの更新に失敗しました: ' + err.message);
+      }
+    }
+
+    async function fetchMetrics() {
+      const service = serviceSelect.value;
+      try {
+        refreshBtn.disabled = true;
+        refreshBtn.innerText = '取得中…';
+        const res = await fetch(`api/metrics.php?service=${encodeURIComponent(service)}&status=${encodeURIComponent(currentStatus)}`);
+        if (!res.ok) throw new Error('API Error');
+        const data = await res.json();
+        cachedData = data;
+        renderAll(data);
+      } catch (e) {
+        showCollectionStatus('ダッシュボードの取得に失敗しました。表示中の値は最新とは限りません。');
+        console.error('Failed to load metrics');
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.innerText = '更新';
+      }
+    }
+
+    async function sendTelemetryPing() {
+      const btn = document.getElementById('telemetry-ping-btn');
+      if (btn) { btn.disabled = true; btn.textContent = '送信中...'; }
+      try {
+        const payload = {
+          type: 'client-error',
+          service: 'manage-portal',
+          message: 'TypeError: dash collector connectivity verification',
+          url: window.location.href,
+          source: window.location.origin + '/dash/index.html',
+          lineno: 1
+        };
+        const res = await fetch('collector.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.status === 204 || res.ok) {
+          alert('疎通テストに成功しました！ SQLiteデータベースが初期化されました。');
+          loadMetrics();
+        } else {
+          alert(`疎通テスト失敗 (HTTP ${res.status})。\nサーバー上で以下のコマンドを実行してディレクトリ権限を付与してください:\n\nsudo mkdir -p /var/lib/portal/telemetry\nsudo chown -R nobody:nobody /var/lib/portal\nsudo chmod -R 770 /var/lib/portal`);
+        }
+      } catch (err) {
+        alert('疎通テスト送信中にエラーが発生しました: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📡 疎通テスト送信'; }
+      }
+    }
+
+    function showCollectionStatus(collection) {
+      let banner = document.getElementById('collection-status');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'collection-status';
+        banner.setAttribute('role', 'status');
+        document.body.prepend(banner);
+      }
+      banner.className = '';
+
+      if (typeof collection === 'string') {
+        banner.textContent = collection;
+        return;
+      }
+
+      if (collection.state === 'observed') {
+        banner.classList.add('status-observed');
+        banner.innerHTML = `<span>🟢 <strong>テレメトリ収集正常稼働中</strong> (最終レポート受信: ${collection.lastReceivedAt})</span>`;
+      } else if (collection.state === 'capacity_limited') {
+        banner.classList.add('status-warning');
+        banner.innerHTML = `<span>⚠️ 収集容量の上限です。保守・容量設定を確認してください。新規レポートは一時拒否されています。</span>`;
+      } else if (collection.state === 'no_reports') {
+        banner.classList.add('status-warning');
+        banner.innerHTML = `<span>🟡 <strong>レポート受信待機中</strong>（DB初期化済み・未受信）</span> <button id="telemetry-ping-btn" class="btn btn-primary" style="padding:0.2rem 0.6rem; font-size:0.75rem;" onclick="sendTelemetryPing()">📡 疎通テスト送信</button>`;
+      } else {
+        banner.classList.add('status-danger');
+        banner.innerHTML = `<span>🔴 <strong>収集状態を確認できません</strong>（DB未作成または権限未設定: <code>/var/lib/portal/telemetry</code>）</span> <button id="telemetry-ping-btn" class="btn btn-primary" style="padding:0.2rem 0.6rem; font-size:0.75rem;" onclick="sendTelemetryPing()">📡 疎通テスト送信 (DB初期化)</button>`;
+      }
+    }
+
+    function renderAll(data) {
+      const collection = data.collection || { state: 'unknown' };
+      showCollectionStatus(collection);
+      // 1. Top KPI Cards
+      const todayPv = data.summary.totalTodayViews || 0;
+      const weekPv = data.summary.totalWeekViews || 0;
+      const clientErrorsCount = data.summary.totalClientErrors || 0;
+      const criticalCsp = data.summary.criticalCount || 0;
+      const servicesCount = data.summary.servicesCount || 0;
+
+      document.getElementById('kpi-today-pv').innerHTML = `${todayPv.toLocaleString()} <span>PV</span>`;
+      document.getElementById('kpi-week-pv').innerHTML = `${weekPv.toLocaleString()} <span>PV</span>`;
+      document.getElementById('kpi-client-errors').innerHTML = `${clientErrorsCount.toLocaleString()} <span>件</span>`;
+      document.getElementById('kpi-critical-csp').innerHTML = `${criticalCsp.toLocaleString()} <span>件</span>`;
+      document.getElementById('kpi-services-count').innerHTML = `${servicesCount} <span>サイト</span>`;
+
+      // 2. Tab counts
+      const sites = data.sitesOverview || [];
+      const incidents = data.incidents || [];
+      const clientErrors = data.clientErrors || [];
+
+      document.getElementById('count-overview').innerText = sites.length;
+      document.getElementById('count-csp').innerText = incidents.length;
+      document.getElementById('count-errors').innerText = clientErrors.length;
+
+      // 3. Update Dropdown Options
+      const currentVal = serviceSelect.value;
+      const allServices = data.services || [];
+      if (serviceSelect.options.length <= 1 && allServices.length > 0) {
+        allServices.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s;
+          serviceSelect.appendChild(opt);
+        });
+        serviceSelect.value = currentVal;
+      }
+
+      // 4. Render All Views
+      renderOverviewTable();
+      renderCspTable(incidents);
+      renderClientErrorsTable(clientErrors);
+      renderDirectives(data.directives || []);
+    }
+
+    function renderOverviewTable() {
+      if (!cachedData || !cachedData.sitesOverview) return;
+      const tbody = document.getElementById('overview-tbody');
+      const query = (searchInput.value || '').trim().toLowerCase();
+
+      let list = cachedData.sitesOverview.filter(item => {
+        if (!query) return true;
+        return item.domain.toLowerCase().includes(query) || (item.service && item.service.toLowerCase().includes(query));
+      });
+
+      // Sort
+      list.sort((a, b) => {
+        let valA, valB;
+        if (sortColumn === 'domain') {
+          valA = a.domain;
+          valB = b.domain;
+          return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        } else if (sortColumn === 'views') {
+          valA = currentPeriod === 'day' ? a.todayViews : (currentPeriod === 'week' ? a.weekViews : a.monthViews);
+          valB = currentPeriod === 'day' ? b.todayViews : (currentPeriod === 'week' ? b.weekViews : b.monthViews);
+        } else if (sortColumn === 'week') {
+          valA = a.weekViews;
+          valB = b.weekViews;
+        } else if (sortColumn === 'month') {
+          valA = a.monthViews;
+          valB = b.monthViews;
+        } else if (sortColumn === 'jsErrors') {
+          valA = a.clientErrorsCount;
+          valB = b.clientErrorsCount;
+        } else if (sortColumn === 'csp') {
+          valA = a.cspCount;
+          valB = b.cspCount;
+        } else if (sortColumn === 'health') {
+          const order = { 'critical': 3, 'warning': 2, 'healthy': 1 };
+          valA = order[a.health] || 0;
+          valB = order[b.health] || 0;
+        }
+        return sortAsc ? (valA - valB) : (valB - valA);
+      });
+
+      if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">該当するサイトが見つかりません。</td></tr>';
+        return;
+      }
+
+      let html = '';
+      list.forEach(item => {
+        const isExpanded = expandedRows.has(item.domain);
+        
+        let primaryViews = item.todayViews;
+        let primaryVisits = item.todayVisits;
+        if (currentPeriod === 'week') {
+          primaryViews = item.weekViews;
+          primaryVisits = item.weekVisits;
+        } else if (currentPeriod === 'month') {
+          primaryViews = item.monthViews;
+          primaryVisits = item.monthVisits;
+        }
+
+        let healthBadge = '<span class="badge badge-info">⚪ 稼働未検証</span>';
+        if (item.health === 'critical') {
+          healthBadge = '<span class="badge badge-critical">🔴 警告</span>';
+        } else if (item.health === 'warning') {
+          healthBadge = '<span class="badge badge-warning">🟡 注意</span>';
+        }
+
+        const jsBadge = item.clientErrorsCount > 0 
+          ? `<span class="badge badge-warning" style="cursor:pointer;" onclick="showSiteErrors('${item.service}')">${item.clientErrorsCount.toLocaleString()} 件</span>`
+          : '<span class="badge badge-success">0</span>';
+
+        const cspBadge = item.criticalCsp > 0
+          ? `<span class="badge badge-critical" style="cursor:pointer;" onclick="showSiteCsp('${item.service}')">${item.cspCount.toLocaleString()} 件</span>`
+          : (item.cspCount > 0 
+              ? `<span class="badge badge-warning" style="cursor:pointer;" onclick="showSiteCsp('${item.service}')">${item.cspCount.toLocaleString()} 件</span>` 
+              : '<span class="badge badge-success">0</span>');
+
+        html += `
+          <tr class="site-row" onclick="toggleExpand('${item.domain}')">
+            <td>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 1rem;">🌐</span>
+                <div>
+                  <a href="https://${escapeHtml(item.domain)}" target="_blank" rel="noopener" style="color: var(--text); font-weight: 700; text-decoration: none;" onclick="event.stopPropagation()">
+                    ${escapeHtml(item.domain)}
+                  </a>
+                  <div class="mono" style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(item.service)}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <div style="font-weight: 700; font-size: 0.95rem; color: var(--primary);">
+                ${primaryViews.toLocaleString()} <span style="font-size: 0.75rem; font-weight: normal; color: var(--text-muted);">PV</span>
+              </div>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">
+                ${primaryVisits.toLocaleString()} visits
+              </div>
+            </td>
+            <td>
+              <strong>${item.weekViews.toLocaleString()}</strong> <span style="font-size: 0.75rem; color: var(--text-muted);">PV</span>
+            </td>
+            <td>
+              <strong>${item.monthViews.toLocaleString()}</strong> <span style="font-size: 0.75rem; color: var(--text-muted);">PV</span>
+            </td>
+            <td>
+              <span class="badge badge-success" style="font-size: 0.7rem;">${escapeHtml(item.cacheStatus || '7日保持')}</span>
+            </td>
+            <td>${jsBadge}</td>
+            <td>${cspBadge}</td>
+            <td>${healthBadge}</td>
+            <td style="text-align: center;">
+              <button class="btn btn-sm" onclick="toggleExpand('${item.domain}', event)">
+                ${isExpanded ? '▲ 閉じる' : '▼ 人気記事'}
+              </button>
+            </td>
+          </tr>
+        `;
+
+        if (isExpanded) {
+          const topPages = item.topPages || [];
+          let topPagesHtml = '';
+          if (topPages.length > 0) {
+            topPagesHtml = topPages.map((p, idx) => `
+              <div class="top-page-card">
+                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden;">
+                  <span style="font-weight: 700; color: var(--text-muted); font-size: 0.75rem;">#${idx+1}</span>
+                  <a href="https://${escapeHtml(item.domain)}${escapeHtml(p.path)}" target="_blank" rel="noopener" class="mono" style="color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(p.path)}">
+                    ${escapeHtml(p.path)}
+                  </a>
+                </div>
+                <div style="white-space: nowrap; font-weight: 700; color: var(--primary);">
+                  ${p.pageViews.toLocaleString()} <span style="font-size: 0.7rem; color: var(--text-muted);">PV</span>
+                </div>
+              </div>
+            `).join('');
+          } else {
+            topPagesHtml = '<div style="color: var(--text-muted); font-size: 0.8rem;">アクセス履歴データがありません。</div>';
+          }
+
+          html += `
+            <tr class="site-expand-row">
+              <td colspan="9">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                  <div style="font-size: 0.85rem; font-weight: 700;">
+                    📈 ${escapeHtml(item.domain)} の人気アクセス記事 (Top 5)
+                  </div>
+                  <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-sm" onclick="showSiteCsp('${item.service}')">🛡️ このサイトのCSPログ</button>
+                    <button class="btn btn-sm" onclick="showSiteErrors('${item.service}')">💥 このサイトのエラーログ</button>
+                  </div>
+                </div>
+                <div class="top-pages-list">
+                  ${topPagesHtml}
+                </div>
+              </td>
+            </tr>
+          `;
+        }
+      });
+
+      tbody.innerHTML = html;
+    }
+
+    function showSiteCsp(service) {
+      switchTab('csp');
+      serviceSelect.value = service;
+      fetchMetrics();
+    }
+
+    function showSiteErrors(service) {
+      switchTab('errors');
+      serviceSelect.value = service;
+      fetchMetrics();
+    }
+
+    function renderCspTable(incidents) {
+      const tbodyCsp = document.getElementById('incidents-body');
+      if (incidents.length === 0) {
+        tbodyCsp.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">該当するCSPレポートはありません。未受信・収集停止との区別は収集状態を確認してください。</td></tr>';
+      } else {
+        tbodyCsp.innerHTML = incidents.map(item => {
+          const isCritical = item.directive === 'script-src' || item.blocked === 'eval';
+          const badgeClass = isCritical ? 'badge-critical' : (item.directive.includes('src') ? 'badge-warning' : 'badge-info');
+          const badgeLabel = isCritical ? 'Critical (スクリプト)' : 'Warning (リソース)';
+          const dateStr = item.last_seen_at ? new Date(item.last_seen_at).toLocaleString('ja-JP') : '-';
+          const st = item.status || 'open';
+
+          let statusBadge = '<span class="badge badge-warning">未対応</span>';
+          if (st === 'resolved') statusBadge = '<span class="badge badge-resolved">対応済</span>';
+          if (st === 'ignored') statusBadge = '<span class="badge badge-resolved">無視</span>';
+
+          const actionBtn = st === 'open' 
+            ? `<button class="btn btn-sm btn-success" onclick="triageIncident('csp', ${item.id}, 'resolved')" title="解決済みにマーク">✔ 解決</button>
+               <button class="btn btn-sm" onclick="triageIncident('csp', ${item.id}, 'ignored')" title="無視にマーク">✕ 無視</button>`
+            : `<button class="btn btn-sm" onclick="triageIncident('csp', ${item.id}, 'open')" title="未対応に戻す">↩ 再オープン</button>`;
+
+          return `
+            <tr>
+              <td style="white-space: nowrap;">${dateStr}</td>
+              <td><span class="badge badge-info">${escapeHtml(item.service)}</span></td>
+              <td>${escapeHtml(item.screen)}</td>
+              <td class="mono"><strong>${escapeHtml(item.directive)}</strong></td>
+              <td><span class="mono">${escapeHtml(item.blocked)}</span></td>
+              <td><strong>${item.count.toLocaleString()}</strong></td>
+              <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+              <td>${statusBadge}</td>
+              <td style="white-space: nowrap; text-align: center;">${actionBtn}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    function renderClientErrorsTable(clientErrors) {
+      const tbodyErrors = document.getElementById('client-errors-body');
+      if (clientErrors.length === 0) {
+        tbodyErrors.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">エラーデータはありません（安定稼働しています）。</td></tr>';
+      } else {
+        tbodyErrors.innerHTML = clientErrors.map(err => {
+          const dateStr = err.last_seen_at ? new Date(err.last_seen_at).toLocaleString('ja-JP') : '-';
+          const srcLoc = err.source ? `${basename(err.source)}:${err.lineno || 0}` : '-';
+          const hasStack = err.stack && err.stack.trim().length > 0;
+          const st = err.status || 'open';
+
+          let statusBadge = '<span class="badge badge-warning">未対応</span>';
+          if (st === 'resolved') statusBadge = '<span class="badge badge-resolved">対応済</span>';
+          if (st === 'ignored') statusBadge = '<span class="badge badge-resolved">無視</span>';
+
+          const actionBtn = st === 'open' 
+            ? `<button class="btn btn-sm btn-success" onclick="triageIncident('client_error', ${err.id}, 'resolved')" title="解決済みにマーク">✔ 解決</button>
+               <button class="btn btn-sm" onclick="triageIncident('client_error', ${err.id}, 'ignored')" title="無視にマーク">✕ 無視</button>`
+            : `<button class="btn btn-sm" onclick="triageIncident('client_error', ${err.id}, 'open')" title="未対応に戻す">↩ 再オープン</button>`;
+
+          return `
+            <tr>
+              <td style="white-space: nowrap;">${dateStr}</td>
+              <td><span class="badge badge-info">${escapeHtml(err.service)}</span></td>
+              <td style="max-width: 320px; overflow: hidden; text-overflow: ellipsis;">
+                <strong style="color: var(--danger);">${escapeHtml(err.message)}</strong>
+              </td>
+              <td class="mono" title="${escapeHtml(err.source)}">${escapeHtml(srcLoc)}</td>
+              <td class="mono" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(err.url)}">
+                ${escapeHtml(err.url ? new URL(err.url, 'http://localhost').pathname : '-')}
+              </td>
+              <td><strong>${(err.count || 1).toLocaleString()}</strong></td>
+              <td>
+                ${hasStack ? `
+                  <details style="cursor: pointer;">
+                    <summary style="color: var(--primary); font-size: 0.75rem;">スタック</summary>
+                    <pre style="white-space: pre-wrap; font-size: 0.7rem; color: var(--text-muted); max-height: 140px; overflow-y: auto; background: rgba(0,0,0,0.3); padding: 0.4rem; border-radius: 4px; margin-top: 0.25rem;">${escapeHtml(err.stack)}</pre>
+                  </details>
+                ` : '<span style="color: var(--text-muted); font-size: 0.75rem;">-</span>'}
+              </td>
+              <td>${statusBadge}</td>
+              <td style="white-space: nowrap; text-align: center;">${actionBtn}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+
+    function renderDirectives(directives) {
+      const dirContainer = document.getElementById('directives-list');
+      if (directives && directives.length > 0) {
+        const max = Math.max(...directives.map(d => d.count), 1);
+        dirContainer.innerHTML = directives.map(d => {
+          const pct = Math.round((d.count / max) * 100);
+          return `
+            <div class="bar-item">
+              <div class="bar-label">
+                <span class="mono">${escapeHtml(d.directive)}</span>
+                <strong>${d.count.toLocaleString()} 件</strong>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width: ${pct}%;"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } else {
+        dirContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0;">CSP 違反は検知されていません。</div>';
+      }
+    }
+
+    // Export CSV with UTF-8 BOM
+    function exportCsv() {
+      if (!cachedData || !cachedData.sitesOverview) {
+        alert('出力対象のデータがありません');
+        return;
+      }
+      const nowStr = new Date().toISOString().slice(0, 10);
+      let csv = '\uFEFF'; // UTF-8 BOM for Excel
+
+      if (currentTab === 'overview') {
+        csv += 'サイト/ドメイン,本日PV,本日Visits,週間PV,週間Visits,月間PV,月間Visits,CDNキャッシュ設定,JSエラー件数,CSP警告件数,健全度\n';
+        cachedData.sitesOverview.forEach(s => {
+          csv += `"${s.domain}",${s.todayViews},${s.todayVisits},${s.weekViews},${s.weekVisits},${s.monthViews},${s.monthVisits},"${s.cacheStatus}",${s.clientErrorsCount},${s.cspCount},"${s.health}"\n`;
+        });
+        downloadFile(csv, `traffic_summary_${nowStr}.csv`);
+      } else if (currentTab === 'csp') {
+        csv += '日時,サービス,画面,ディレクティブ,遮断種別,累積回数,状態,ブロックURI\n';
+        (cachedData.incidents || []).forEach(i => {
+          csv += `"${i.last_seen_at}","${i.service}","${i.screen}","${i.directive}","${i.blocked}",${i.count},"${i.status}","${(i.raw_blocked_uri||'').replace(/"/g, '""')}"\n`;
+        });
+        downloadFile(csv, `csp_incidents_${nowStr}.csv`);
+      } else {
+        csv += '日時,サービス,エラーメッセージ,発生元,URL,累積回数,状態\n';
+        (cachedData.clientErrors || []).forEach(e => {
+          csv += `"${e.last_seen_at}","${e.service}","${(e.message||'').replace(/"/g, '""')}","${e.source}",${e.url},${e.count},"${e.status}"\n`;
+        });
+        downloadFile(csv, `client_errors_${nowStr}.csv`);
+      }
+    }
+
+    function downloadFile(content, filename) {
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function basename(path) {
+      if (!path) return '';
+      return path.split('/').pop().split('?')[0];
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[m]);
+    }
+
+    refreshBtn.addEventListener('click', fetchMetrics);
+    serviceSelect.addEventListener('change', fetchMetrics);
+    searchInput.addEventListener('input', renderOverviewTable);
+
+    // Initial load
+    fetchMetrics();
+    setInterval(fetchMetrics, 30000);
+  </script>
+</body>
+</html>

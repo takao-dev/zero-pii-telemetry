@@ -1,0 +1,33 @@
+{
+  "name": "zero-pii-telemetry",
+  "version": "1.0.0",
+  "description": "Self-hosted, zero-PII W3C CSP violation and client JS crash collector powered by PHP and SQLite (WAL) with browser extension noise filtering and outside-docroot enforcement.",
+  "files": [
+    "src",
+    "Dockerfile",
+    "docker-compose.yml",
+    ".env.example",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "python src/tests/telemetry_test.py"
+  },
+  "keywords": [
+    "csp",
+    "content-security-policy",
+    "telemetry",
+    "error-tracking",
+    "sqlite",
+    "php",
+    "zero-pii",
+    "self-hosted",
+    "docker"
+  ],
+  "author": "takaodev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/takaodev/zero-pii-telemetry.git"
+  }
+}

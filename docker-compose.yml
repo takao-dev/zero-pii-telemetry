@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  telemetry:
+    build: .
+    container_name: zero-pii-telemetry
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - TELEMETRY_DATA_DIR=/var/lib/telemetry
+      - TELEMETRY_ALLOWED_HOSTS=localhost,127.0.0.1,example.com
+      - TELEMETRY_SERVICES=app,web,api
+      # Optional: Slack / Discord alert webhook URL
+      # - CSP_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
+    volumes:
+      - telemetry-data:/var/lib/telemetry
+
+volumes:
+  telemetry-data:

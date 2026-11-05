@@ -1,0 +1,7 @@
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+.env
+data/
+.DS_Store
