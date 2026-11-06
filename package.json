@@ -8,7 +8,8 @@
     "docker-compose.yml",
     ".env.example",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "README_JA.md"
   ],
   "scripts": {
     "test": "python src/tests/telemetry_test.py"
