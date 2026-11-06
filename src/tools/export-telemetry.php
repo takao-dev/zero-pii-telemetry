@@ -105,14 +105,21 @@ if ($format === 'json') {
         'records' => $results,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
 } else {
+    $sanitizeCsv = static function(mixed $val): string {
+        $str = (string)$val;
+        if ($str !== '' && in_array($str[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'" . $str;
+        }
+        return $str;
+    };
     $fp = fopen('php://temp', 'r+');
     fputcsv($fp, ['record_type', 'service', 'directive_or_message', 'uri_or_source', 'occurrences', 'first_seen_iso', 'last_seen_iso']);
     foreach ($results as $r) {
         fputcsv($fp, [
-            $r['record_type'],
-            $r['service'],
-            $r['directive'],
-            $r['uri_or_source'],
+            $sanitizeCsv($r['record_type']),
+            $sanitizeCsv($r['service']),
+            $sanitizeCsv($r['directive']),
+            $sanitizeCsv($r['uri_or_source']),
             $r['count'],
             date('c', (int)$r['first_seen_at']),
             date('c', (int)$r['last_seen_at']),
