@@ -44,7 +44,7 @@ Web サービスの運用において、CSP 違反やフロントエンドの JS
 わずか 30 秒で起動できます：
 
 ```bash
-git clone https://github.com/takaodev/zero-pii-telemetry.git
+git clone https://github.com/takao-dev/zero-pii-telemetry.git
 cd zero-pii-telemetry
 docker compose up -d
 ```
@@ -140,4 +140,4 @@ php src/tools/export-telemetry.php --type=csp --service=frontend
 
 ## 📄 ライセンス
 
-MIT License © 2026 takaodev
+MIT License © 2026 takao-dev

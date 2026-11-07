@@ -25,10 +25,10 @@
     "self-hosted",
     "docker"
   ],
-  "author": "takaodev",
+  "author": "takao-dev",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/takaodev/zero-pii-telemetry.git"
+    "url": "git+https://github.com/takao-dev/zero-pii-telemetry.git"
   }
 }

@@ -38,7 +38,7 @@ Most engineering teams struggle with CSP and error reporting:
 Get up and running in 30 seconds with Docker Compose:
 
 ```bash
-git clone https://github.com/takaodev/zero-pii-telemetry.git
+git clone https://github.com/takao-dev/zero-pii-telemetry.git
 cd zero-pii-telemetry
 docker compose up -d
 ```
@@ -172,4 +172,4 @@ php src/tools/export-telemetry.php --type=csp --service=web
 
 ## 📄 License
 
-MIT License © 2026 takaodev
+MIT License © 2026 takao-dev
