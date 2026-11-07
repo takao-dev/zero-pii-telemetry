@@ -1,6 +1,6 @@
 {
   "name": "zero-pii-telemetry",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Self-hosted, zero-PII W3C CSP violation and client JS crash collector powered by PHP and SQLite (WAL) with browser extension noise filtering and outside-docroot enforcement.",
   "files": [
     "src",
