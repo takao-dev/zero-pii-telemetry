@@ -3,7 +3,13 @@
 *.db
 *.log
 .env
+.env.*
+!.env.example
 data/
+.vscode/
+.idea/
+coverage/
 .DS_Store
+Thumbs.db
 __pycache__/
 *.pyc
