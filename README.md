@@ -1,6 +1,7 @@
 # zero-pii-telemetry
 
 [![CI](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/ci.yml/badge.svg)](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/takao-dev/zero-pii-telemetry/branch/main/graph/badge.svg)](https://codecov.io/gh/takao-dev/zero-pii-telemetry)
 [![CodeQL](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/codeql.yml/badge.svg)](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](docker-compose.yml)
