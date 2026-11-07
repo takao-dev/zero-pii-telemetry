@@ -1,5 +1,6 @@
 # zero-pii-telemetry
 
+[![codecov](https://codecov.io/gh/takao-dev/zero-pii-telemetry/branch/main/graph/badge.svg)](https://codecov.io/gh/takao-dev/zero-pii-telemetry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](docker-compose.yml)
 [![PHP](https://img.shields.io/badge/PHP-8.2%20%7C%208.3-777BB4.svg)]()

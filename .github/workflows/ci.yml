@@ -34,8 +34,24 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Run Telemetry Regression Tests (with coverage)
+        if: matrix.php-version == '8.3'
+        run: |
+          pip install coverage
+          coverage run src/tests/telemetry_test.py
+          coverage xml -o coverage.xml
+
       - name: Run Telemetry Regression Tests
+        if: matrix.php-version != '8.3'
         run: python src/tests/telemetry_test.py
+
+      - name: Upload coverage reports to Codecov
+        if: matrix.php-version == '8.3'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false
 
   docker-build:
     name: Validate Docker Container Build
