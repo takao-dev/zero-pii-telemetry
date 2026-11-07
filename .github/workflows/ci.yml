@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup PHP ${{ matrix.php-version }}
         uses: shivammathur/setup-php@v2
@@ -37,8 +39,8 @@ jobs:
       - name: Run Telemetry Regression Tests (with coverage)
         if: matrix.php-version == '8.3'
         run: |
-          pip install coverage
-          coverage run src/tests/telemetry_test.py
+          pip install coverage unittest-xml-reporting
+          coverage run -m xmlrunner src/tests/telemetry_test.py -o coverage
           coverage xml -o coverage.xml
 
       - name: Run Telemetry Regression Tests
@@ -51,6 +53,15 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
+          fail_ci_if_error: false
+
+      - name: Upload test results to Codecov (Test Analytics)
+        if: ${{ !cancelled() && matrix.php-version == '8.3' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          report-type: test_results
+          files: ./coverage/TEST-*.xml
           fail_ci_if_error: false
 
   docker-build:
