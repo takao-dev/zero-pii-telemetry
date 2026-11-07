@@ -2,18 +2,25 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [ main ]
   pull_request:
-    branches: [main, master]
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: PHP ${{ matrix.php-version }} on Ubuntu
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         php-version: ['8.2', '8.3']
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup PHP ${{ matrix.php-version }}
@@ -29,3 +36,13 @@ jobs:
 
       - name: Run Telemetry Regression Tests
         run: python src/tests/telemetry_test.py
+
+  docker-build:
+    name: Validate Docker Container Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t zero-pii-telemetry:test .
