@@ -7,6 +7,7 @@
 
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/telemetry.php';
+telemetry_require_admin();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, private');
@@ -25,7 +26,7 @@ if (!$operationsDataDir) {
         '/var/www/Operations/data',
         '/var/www/website/hugo/Operations/data',
         '/var/www/operations/data',
-        $dataDir . '/operations',
+        ($dbPath ? dirname($dbPath) : '') . '/operations',
     ];
     foreach ($candidateDirs as $dir) {
         if (is_dir($dir)) {

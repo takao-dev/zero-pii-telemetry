@@ -7,6 +7,7 @@
 
 declare(strict_types=1);
 require_once dirname(__DIR__) . '/telemetry.php';
+telemetry_require_admin();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-cache, no-store, private');
@@ -20,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-$expectedOrigin = rtrim(portal_env('PORTAL_MANAGEMENT_ORIGIN') ?: 'https://manage.takao.me', '/');
+$expectedOrigin = rtrim(portal_env('PORTAL_MANAGEMENT_ORIGIN') ?: '', '/');
 if (!hash_equals($expectedOrigin, $origin) ||
     ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '') === 'cross-site' ||
     strtolower(trim(explode(';', $_SERVER['CONTENT_TYPE'] ?? '')[0])) !== 'application/json') {

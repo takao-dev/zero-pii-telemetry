@@ -2,10 +2,14 @@
 
 This change is source-only until the server settings, migration and HTTP acceptance below are completed. Do not deploy it without configuring private storage: collection fails closed with 503 when storage is absent or inside DocumentRoot.
 
+## Management authentication
+
+The management API enforces HTTP Basic authentication itself. Set `TELEMETRY_ADMIN_PASSWORD_HASH` to a PHP `password_hash()` result and optionally `TELEMETRY_ADMIN_USER` (default `admin`); unset/invalid configuration returns503. Open `login.php` to authenticate before using the dashboard. Supply credentials only over TLS or loopback; add proxy rate limits for password attempts. Forward Authorization through FastCGI. No proxy-identity header bypass is supported. Set `PORTAL_MANAGEMENT_ORIGIN` explicitly for triage CSRF protection. Compose maps `TELEMETRY_MANAGEMENT_ORIGIN` to this variable and binds only127.0.0.1 by default. Keep public collector routing separate from private management.
+
 ## Configuration
 
 - `PORTAL_TELEMETRY_DATA_DIR`: required absolute directory **outside** the OpenLiteSpeed DocumentRoot. Use a dedicated owner-only directory on a local filesystem, e.g. `/var/lib/portal/telemetry`. Do not share the SQLite file over NFS/SMB. Allow only the intended PHP worker account to access it; keep backups private too.
-- `PORTAL_MANAGEMENT_ORIGIN`: exact dashboard Origin, default `https://manage.takao.me`. Used for triage POST protection; does not replace upstream authentication/ACLs.
+- `PORTAL_MANAGEMENT_ORIGIN`: exact dashboard Origin, required; no deployment-specific default. Used for triage POST protection; does not replace upstream authentication/ACLs.
 - `PORTAL_TELEMETRY_SERVICES`: comma-separated approved service identifiers. Defaults preserve `houkago-link`, `manage-portal`, `unknown`, `other`. Register the identifiers used by the 15 sites before rollout; unknown identifiers/URL hosts become `other` so arbitrary strings cannot enter telemetry through a service-name copy.
 - `CSP_WEBHOOK_URL`: optional HTTPS Slack/Discord-compatible webhook. Supply through server environment; the old document-root `config.json` fallback is no longer used. Default allowed hosts: hooks.slack.com, discord.com, discordapp.com. No redirects. Additional approved public origins can be configured with `PORTAL_TELEMETRY_WEBHOOK_ORIGINS`.
 - Defaults: `PORTAL_TELEMETRY_REQUESTS_PER_MINUTE=600`, `PORTAL_TELEMETRY_PEER_REQUESTS_PER_MINUTE=120`, `PORTAL_TELEMETRY_MAX_ROWS=100000`, `PORTAL_TELEMETRY_MAX_BYTES=67108864`. Caps cover DB+WAL+SHM at request admission; filesystem quotas are still needed as the hard disk boundary. A full store rejects ingestion with 503 until maintenance/capacity is addressed. Rate rejection uses 429. Observe real traffic before tuning.

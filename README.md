@@ -1,5 +1,17 @@
 # zero-pii-telemetry
 
+## Management authentication setup
+
+Management APIs require HTTP Basic authentication. Missing/invalid `TELEMETRY_ADMIN_PASSWORD_HASH` fails closed with503; missing/wrong credentials return401. Public ingestion remains unauthenticated.
+
+1. Copy `.env.example` to `.env`.
+2. Generate a hash with `php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'` and put it in `TELEMETRY_ADMIN_PASSWORD_HASH` in **single quotes** to preserve dollar signs. Without local PHP, use `docker compose run --rm telemetry php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'`.
+3. Set `TELEMETRY_ADMIN_USER` (default `admin`) and `TELEMETRY_MANAGEMENT_ORIGIN` to the exact dashboard origin. Standalone PHP uses `PORTAL_MANAGEMENT_ORIGIN` for the latter.
+4. Start Compose and authenticate at `http://localhost:8080/login.php`. The supplied Compose port binds only to loopback by default.
+
+Use TLS and a reverse proxy for external access, route the public hostname only to the collector, keep management on a private route, and retain API authentication. Forward Authorization to PHP/FastCGI. Existing installations must configure the hash and management origin too. See [HARDENING](src/HARDENING.md).
+
+
 [![CI](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/ci.yml/badge.svg)](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/takao-dev/zero-pii-telemetry/branch/main/graph/badge.svg)](https://codecov.io/gh/takao-dev/zero-pii-telemetry)
 [![CodeQL](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/codeql.yml/badge.svg)](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/codeql.yml)
@@ -38,7 +50,7 @@ Most engineering teams struggle with CSP and error reporting:
 
 ## 🚀 Quick Start (Docker Compose)
 
-Get up and running in 30 seconds with Docker Compose:
+Configure management authentication above, then start Docker Compose:
 
 ```bash
 git clone https://github.com/takao-dev/zero-pii-telemetry.git
@@ -47,7 +59,7 @@ docker compose up -d
 ```
 
 - **Collector Endpoint**: `http://localhost:8080/collector.php`
-- **Dashboard UI**: `http://localhost:8080/index.html`
+- **Dashboard UI**: `http://localhost:8080/login.php`
 
 Data is persisted safely in the `telemetry-data` Docker volume.
 

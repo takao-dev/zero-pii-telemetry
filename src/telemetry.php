@@ -25,6 +25,36 @@ function portal_env(string $name, ?string $default = null): ?string {
     return $default;
 }
 
+/** Authenticate management independently of browser Origin/CSRF controls and proxy headers. */
+function telemetry_require_admin(): void {
+    header('Cache-Control: no-store, private');
+    $hash = portal_env('TELEMETRY_ADMIN_PASSWORD_HASH');
+    if (!$hash || (password_get_info($hash)['algoName'] ?? 'unknown') === 'unknown') {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['status' => 'error', 'message' => 'Management authentication is not configured']);
+        exit;
+    }
+    $user = $_SERVER['PHP_AUTH_USER'] ?? '';
+    $password = $_SERVER['PHP_AUTH_PW'] ?? '';
+    // FastCGI deployments may expose only the Authorization header.
+    if ($user === '' && isset($_SERVER['HTTP_AUTHORIZATION']) &&
+        preg_match('/^Basic ([A-Za-z0-9+\/=]+)$/iD', $_SERVER['HTTP_AUTHORIZATION'], $matches)) {
+        $decoded = base64_decode($matches[1], true);
+        if (is_string($decoded) && str_contains($decoded, ':')) {
+            [$user, $password] = explode(':', $decoded, 2);
+        }
+    }
+    $validPassword = is_string($password) && password_verify($password, $hash);
+    if (!is_string($user) || !hash_equals(portal_env('TELEMETRY_ADMIN_USER', 'admin'), $user) || !$validPassword) {
+        header('WWW-Authenticate: Basic realm="Telemetry management", charset="UTF-8"');
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(401);
+        echo json_encode(['status' => 'error', 'message' => 'Authentication required']);
+        exit;
+    }
+}
+
 /**
  * Resolve client IP with optional trusted proxy / Cloudflare support.
  * Falls back to REMOTE_ADDR unless client is behind a configured trusted proxy.

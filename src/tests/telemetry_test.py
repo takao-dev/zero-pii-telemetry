@@ -1,4 +1,5 @@
 """Isolated localhost regression tests; uses only synthetic SQLite fixtures."""
+import base64
 import contextlib
 import json
 import os
@@ -17,6 +18,8 @@ PHP = os.environ.get('PHP_BINARY', 'php')
 PHP_ARGS = [PHP]
 if os.environ.get('PHP_EXTENSION_DIR'):
     PHP_ARGS += ['-n', '-d', 'extension_dir=' + os.environ['PHP_EXTENSION_DIR'], '-d', 'extension=pdo_sqlite']
+ADMIN_PASSWORD = 'synthetic-admin-password-not-a-secret'
+ADMIN_HASH = subprocess.check_output(PHP_ARGS + ['-r', 'echo password_hash(' + json.dumps(ADMIN_PASSWORD) + ', PASSWORD_DEFAULT);']).decode()
 SECRET = 'SYNTHETIC-SENSITIVE-12345'
 
 @contextlib.contextmanager
@@ -36,7 +39,8 @@ def server(**settings):
             port = sock.getsockname()[1]
         origin = f'http://127.0.0.1:{port}'
         env = dict(os.environ, PORTAL_TELEMETRY_DATA_DIR=private,
-                   PORTAL_MANAGEMENT_ORIGIN=origin, CSP_WEBHOOK_URL='', OPERATIONS_DATA_DIR=private)
+                   PORTAL_MANAGEMENT_ORIGIN=origin, CSP_WEBHOOK_URL='', OPERATIONS_DATA_DIR=private,
+                   TELEMETRY_ADMIN_USER='admin', TELEMETRY_ADMIN_PASSWORD_HASH=ADMIN_HASH)
         env.update(settings)
         process = subprocess.Popen(PHP_ARGS + ['-d', 'display_errors=0', '-S', f'127.0.0.1:{port}', '-t', str(ROOT)],
                                    env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -54,9 +58,11 @@ def server(**settings):
             process.terminate()
             process.wait(timeout=10)
 
-def request(origin, path, payload=None, headers=None):
+def request(origin, path, payload=None, headers=None, authenticate=True):
     body = json.dumps(payload).encode() if payload is not None else None
     values = {'Content-Type': 'application/json'}
+    if authenticate and (path.startswith('api/') or path.startswith('login.php')):
+        values['Authorization'] = 'Basic ' + base64.b64encode(('admin:' + ADMIN_PASSWORD).encode()).decode()
     values.update(headers or {})
     req = urllib.request.Request(origin + '/' + path, data=body, headers=values)
     try:
@@ -71,6 +77,31 @@ def csp(service='synthetic'):
                           'effective-directive': 'script-src', 'disposition': 'report'}}
 
 class TelemetryTests(unittest.TestCase):
+    def test_management_authentication_cannot_be_replaced_by_origin_headers(self):
+        with server() as (origin, private):
+            self.assertEqual(request(origin, 'collector.php', csp(), authenticate=False)[0], 204)
+            update = {'type': 'csp', 'id': 1, 'status': 'ignored'}
+            forged = {'Origin': origin, 'Sec-Fetch-Site': 'same-origin'}
+            self.assertEqual(request(origin, 'api/metrics.php', authenticate=False)[0], 401)
+            self.assertEqual(request(origin, 'api/triage.php', update, forged, authenticate=False)[0], 401)
+            wrong = {'Authorization': 'Basic ' + base64.b64encode(b'admin:wrong').decode()}
+            self.assertEqual(request(origin, 'api/metrics.php', headers=wrong)[0], 401)
+            wrong_user = {'Authorization': 'Basic ' + base64.b64encode(('other:' + ADMIN_PASSWORD).encode()).decode()}
+            self.assertEqual(request(origin, 'api/metrics.php', headers=wrong_user)[0], 401)
+            self.assertEqual(request(origin, 'api/metrics.php')[0], 200)
+            self.assertEqual(request(origin, 'api/triage.php', update, {'Origin': origin})[0], 200)
+            self.assertEqual(request(origin, 'login.php', authenticate=False)[0], 401)
+            self.assertEqual(request(origin, 'login.php')[0], 200)
+            with database(private / 'telemetry.sqlite') as db:
+                self.assertEqual(db.execute('SELECT status FROM csp_violations').fetchone()[0], 'ignored')
+
+    def test_management_fails_closed_without_a_valid_password_hash(self):
+        for configured in ['', 'not-a-password-hash']:
+            with self.subTest(configured=configured), server(TELEMETRY_ADMIN_PASSWORD_HASH=configured) as (origin, _):
+                self.assertEqual(request(origin, 'collector.php', csp(), authenticate=False)[0], 204)
+                self.assertEqual(request(origin, 'api/metrics.php')[0], 503)
+                self.assertEqual(request(origin, 'api/triage.php', {'type':'csp','id':1,'status':'ignored'}, {'Origin':origin})[0], 503)
+
     def test_masks_persistence_and_preserves_deduplication(self):
         with server() as (origin, private):
             self.assertEqual(request(origin, 'collector.php', csp())[0], 204)

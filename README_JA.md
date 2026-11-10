@@ -1,5 +1,17 @@
 # zero-pii-telemetry
 
+## 管理画面の認証設定
+
+管理APIにはHTTP Basic認証が必須です。`TELEMETRY_ADMIN_PASSWORD_HASH` が未設定・不正な場合は503で拒否し、認証情報がない・不正な場合は401で拒否します。収集APIは認証なしで使用できます。
+
+1. `.env.example` を `.env` にコピーします。
+2. `php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'` で強い管理パスワードのハッシュを作成し、`.env` の `TELEMETRY_ADMIN_PASSWORD_HASH` に**単一引用符で囲んで**設定します。PHPが手元にない場合は、`docker compose run --rm telemetry php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'` を使えます。
+3. `TELEMETRY_ADMIN_USER`（既定値 `admin`）と `TELEMETRY_MANAGEMENT_ORIGIN`（管理画面の正確なオリジン）を設定します。単体PHPでは後者を `PORTAL_MANAGEMENT_ORIGIN` として設定してください。
+4. 起動後、`http://localhost:8080/login.php` で認証します。同梱Composeは既定でループバックだけに公開します。
+
+外部公開時はTLSとリバースプロキシを使用し、公開側は収集APIだけへ転送してください。管理画面は私用経路で公開し、管理APIの認証も有効なままにします。FastCGIにはAuthorizationヘッダーを転送してください。既存導入もハッシュと管理Originの設定が必要です。詳細は [HARDENING](src/HARDENING.md) を参照してください。
+
+
 [![codecov](https://codecov.io/gh/takao-dev/zero-pii-telemetry/branch/main/graph/badge.svg)](https://codecov.io/gh/takao-dev/zero-pii-telemetry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](docker-compose.yml)
@@ -51,7 +63,7 @@ docker compose up -d
 ```
 
 - **収集エンドポイント**: `http://localhost:8080/collector.php`
-- **ダッシュボード画面**: `http://localhost:8080/index.html`
+- **ダッシュボード画面**: `http://localhost:8080/login.php`
 
 データは `telemetry-data` ボリュームに安全に永続化されます。
 
