@@ -216,11 +216,17 @@ if ($pdo) {
             FROM csp_violations
             {$whereSql}
             GROUP BY directive
-            ORDER BY count DESC
-            LIMIT 10
         ");
         $dirStmt->execute($params);
-        $directives = $dirStmt->fetchAll(PDO::FETCH_ASSOC);
+        $directiveTotals = [];
+        while ($row = $dirStmt->fetch(PDO::FETCH_ASSOC)) {
+            $d = telemetry_csp_directive((string)($row['directive'] ?? ''));
+            $directiveTotals[$d] = ($directiveTotals[$d] ?? 0) + (int)($row['count'] ?? 0);
+        }
+        arsort($directiveTotals);
+        foreach (array_slice($directiveTotals, 0, 10, true) as $d => $cnt) {
+            $directives[] = ['directive' => $d, 'count' => $cnt];
+        }
 
         // 4. Daily Trend
         $trendStmt = $pdo->prepare("
