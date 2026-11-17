@@ -51,7 +51,11 @@ function telemetry_require_admin(): void {
     } catch (Throwable $e) {
         http_response_code(503);
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['status' => 'error', 'message' => 'Management authentication unavailable']);
+        echo json_encode([
+            'status' => 'unavailable',
+            'collection' => ['state' => 'unavailable', 'lastReceivedAt' => null],
+            'message' => 'Management authentication unavailable',
+        ]);
         exit;
     }
     if ($result['limited']) {

@@ -147,7 +147,7 @@ if (!empty($serviceFilter) && is_string($serviceFilter) && $serviceFilter !== 'a
 }
 
 if (!empty($statusFilter) && $statusFilter !== 'all') {
-    $whereClauses[] = 'COALESCE(status, "open") = :status';
+    $whereClauses[] = "(CASE WHEN status IN ('resolved', 'ignored') THEN status ELSE 'open' END) = :status";
     $params[':status'] = $statusFilter;
 }
 
@@ -262,7 +262,7 @@ if ($pdo) {
                    SUM(count) as total_count,
                    SUM(CASE WHEN directive = 'script-src' OR blocked = 'eval' THEN count ELSE 0 END) as critical_count
             FROM csp_violations
-            WHERE COALESCE(status, 'open') = 'open'
+            WHERE (CASE WHEN status IN ('resolved', 'ignored') THEN status ELSE 'open' END) = 'open'
             GROUP BY service
         ");
         while ($row = $cspSiteStmt->fetch(PDO::FETCH_ASSOC)) {
@@ -274,7 +274,7 @@ if ($pdo) {
         $errSiteStmt = $pdo->query("
             SELECT service, SUM(count) as total_count
             FROM client_errors
-            WHERE COALESCE(status, 'open') = 'open'
+            WHERE (CASE WHEN status IN ('resolved', 'ignored') THEN status ELSE 'open' END) = 'open'
             GROUP BY service
         ");
         while ($row = $errSiteStmt->fetch(PDO::FETCH_ASSOC)) {
