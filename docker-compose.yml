@@ -13,6 +13,7 @@ services:
       - TELEMETRY_SERVICES=app,web,api
       - TELEMETRY_ADMIN_USER=${TELEMETRY_ADMIN_USER:-admin}
       - TELEMETRY_ADMIN_PASSWORD_HASH=${TELEMETRY_ADMIN_PASSWORD_HASH:-}
+      - TELEMETRY_AUTH_FAILURES_PER_MINUTE=${TELEMETRY_AUTH_FAILURES_PER_MINUTE:-10}
       - PORTAL_MANAGEMENT_ORIGIN=${TELEMETRY_MANAGEMENT_ORIGIN:-http://localhost:8080}
       # Optional: Slack / Discord alert webhook URL
       # - CSP_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz

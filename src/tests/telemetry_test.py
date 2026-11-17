@@ -102,6 +102,34 @@ class TelemetryTests(unittest.TestCase):
                 self.assertEqual(request(origin, 'api/metrics.php')[0], 503)
                 self.assertEqual(request(origin, 'api/triage.php', {'type':'csp','id':1,'status':'ignored'}, {'Origin':origin})[0], 503)
 
+    def test_management_auth_throttles_failed_passwords_per_peer(self):
+        with server(PORTAL_TELEMETRY_AUTH_FAILURES_PER_MINUTE='2') as (origin, _):
+            wrong = {'Authorization': 'Basic ' + base64.b64encode(b'admin:wrong').decode()}
+            self.assertEqual(request(origin, 'api/metrics.php', headers=wrong)[0], 401)
+            self.assertEqual(request(origin, 'api/metrics.php', headers=wrong)[0], 401)
+            self.assertEqual(request(origin, 'api/metrics.php')[0], 429)
+
+    def test_export_uses_iso_dates_redacts_records_and_never_overwrites(self):
+        with server() as (origin, private):
+            self.assertEqual(request(origin, 'collector.php', csp())[0], 204)
+            with database(private / 'telemetry.sqlite') as db:
+                db.execute('UPDATE csp_violations SET raw_blocked_uri=?,last_seen_at=?',
+                           ('https://manage.takao.me/' + SECRET + '?token=' + SECRET, '2026-11-17T12:00:00Z'))
+            env = dict(os.environ, PORTAL_TELEMETRY_DATA_DIR=str(private))
+            script = str(ROOT / 'tools/export-telemetry.php')
+            result = subprocess.run(PHP_ARGS + [script, '--days=30', '--type=csp'], env=env, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            exported = json.loads(result.stdout)
+            self.assertEqual(exported['record_count'], 1)
+            self.assertEqual(exported['records'][0]['last_seen_at'], '2026-11-17T12:00:00Z')
+            self.assertNotIn(SECRET, result.stdout.decode())
+
+            existing = private / 'existing-export.json'
+            existing.write_bytes(b'keep this file')
+            output_result = subprocess.run(PHP_ARGS + [script, '--output=' + str(existing)], env=env, capture_output=True)
+            self.assertEqual(output_result.returncode, 1)
+            self.assertEqual(existing.read_bytes(), b'keep this file')
+
     def test_masks_persistence_and_preserves_deduplication(self):
         with server() as (origin, private):
             self.assertEqual(request(origin, 'collector.php', csp())[0], 204)
@@ -124,9 +152,17 @@ class TelemetryTests(unittest.TestCase):
     def test_redacts_legacy_rows_at_read_boundary(self):
         with server() as (origin, private):
             request(origin, 'collector.php', {'type': 'client-error', 'message': 'TypeError'})
+            request(origin, 'collector.php', csp())
             with database(private / 'telemetry.sqlite') as db:
                 db.execute('UPDATE client_errors SET service=?,url=?,message=?,source=?,stack=?', [SECRET] * 5)
-            self.assertNotIn(SECRET, request(origin, 'api/metrics.php')[1])
+                db.execute('UPDATE csp_violations SET service=?,directive=?,blocked=?,disposition=?,raw_blocked_uri=?,status=?',
+                           [SECRET, SECRET, SECRET, SECRET, SECRET, SECRET])
+            body = request(origin, 'api/metrics.php')[1]
+            self.assertNotIn(SECRET, body)
+            parsed = json.loads(body)
+            self.assertEqual(parsed['incidents'][0]['directive'], 'other')
+            self.assertEqual(parsed['incidents'][0]['blocked'], 'other')
+            self.assertEqual(parsed['incidents'][0]['status'], 'open')
 
     def test_missing_empty_and_corrupt_database_are_not_healthy(self):
         with server() as (origin, private):
@@ -154,6 +190,14 @@ class TelemetryTests(unittest.TestCase):
         with server(PORTAL_TELEMETRY_MAX_BYTES='1') as (origin, _):
             self.assertEqual(request(origin, 'collector.php', csp())[0], 204)
             self.assertEqual(request(origin, 'collector.php', csp())[0], 503)
+
+    def test_trusted_proxy_uses_the_rightmost_untrusted_forwarded_peer(self):
+        with server(PORTAL_TRUSTED_PROXIES='127.0.0.1',
+                    PORTAL_TELEMETRY_PEER_REQUESTS_PER_MINUTE='1') as (origin, _):
+            first = {'X-Forwarded-For': '203.0.113.201, 198.51.100.23'}
+            forged = {'X-Forwarded-For': '203.0.113.202, 198.51.100.23'}
+            self.assertEqual(request(origin, 'collector.php', csp(), first)[0], 204)
+            self.assertEqual(request(origin, 'collector.php', csp(), forged)[0], 429)
 
     def test_atomic_quota_across_concurrent_php_processes(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -190,6 +234,16 @@ class TelemetryTests(unittest.TestCase):
             with database(private / 'telemetry.sqlite') as db:
                 self.assertEqual(db.execute('SELECT service FROM client_errors').fetchone()[0], 'other')
             self.assertNotIn(SECRET, request(origin, 'api/metrics.php')[1])
+
+    def test_untrusted_host_header_cannot_expand_url_allowlist(self):
+        with server() as (origin, private):
+            headers = {'Host': 'attacker-controlled.invalid'}
+            payload = {'type': 'client-error', 'url': 'https://attacker-controlled.invalid/' + SECRET,
+                       'source': 'https://attacker-controlled.invalid/' + SECRET, 'message': 'TypeError'}
+            self.assertEqual(request(origin, 'collector.php', payload, headers)[0], 204)
+            with database(private / 'telemetry.sqlite') as db:
+                row = db.execute('SELECT url,source FROM client_errors').fetchone()
+                self.assertEqual(row, ('[redacted-url]', '[redacted-url]'))
 
     def test_capacity_maintenance_restores_ingestion(self):
         with server(PORTAL_TELEMETRY_MAX_BYTES='131072') as (origin, private):

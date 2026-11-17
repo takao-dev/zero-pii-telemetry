@@ -38,20 +38,97 @@ function telemetry_require_admin(): void {
     $user = $_SERVER['PHP_AUTH_USER'] ?? '';
     $password = $_SERVER['PHP_AUTH_PW'] ?? '';
     // FastCGI deployments may expose only the Authorization header.
-    if ($user === '' && isset($_SERVER['HTTP_AUTHORIZATION']) &&
-        preg_match('/^Basic ([A-Za-z0-9+\/=]+)$/iD', $_SERVER['HTTP_AUTHORIZATION'], $matches)) {
+    $authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? null;
+    if ($user === '' && is_string($authorization) && strlen($authorization) <= 8192 &&
+        preg_match('/^Basic ([A-Za-z0-9+\/=]+)$/iD', $authorization, $matches)) {
         $decoded = base64_decode($matches[1], true);
         if (is_string($decoded) && str_contains($decoded, ':')) {
             [$user, $password] = explode(':', $decoded, 2);
         }
     }
-    $validPassword = is_string($password) && password_verify($password, $hash);
-    if (!is_string($user) || !hash_equals(portal_env('TELEMETRY_ADMIN_USER', 'admin'), $user) || !$validPassword) {
+    try {
+        $result = telemetry_authenticate_admin((string)$user, (string)$password, $hash);
+    } catch (Throwable $e) {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['status' => 'error', 'message' => 'Management authentication unavailable']);
+        exit;
+    }
+    if ($result['limited']) {
+        header('Retry-After: 60');
+        header('Content-Type: application/json; charset=utf-8');
+        http_response_code(429);
+        echo json_encode(['status' => 'error', 'message' => 'Too many authentication attempts']);
+        exit;
+    }
+    if (!$result['authenticated']) {
         header('WWW-Authenticate: Basic realm="Telemetry management", charset="UTF-8"');
         header('Content-Type: application/json; charset=utf-8');
         http_response_code(401);
         echo json_encode(['status' => 'error', 'message' => 'Authentication required']);
         exit;
+    }
+}
+
+/** Serialize password checks and cap failed Basic-auth attempts per client peer. */
+function telemetry_authenticate_admin(string $user, string $password, string $hash): array {
+    $path = telemetry_data_dir() . '/admin-auth.json';
+    $handle = @fopen($path, 'c+');
+    if (!$handle || !flock($handle, LOCK_EX)) {
+        if (is_resource($handle)) fclose($handle);
+        throw new RuntimeException('Management authentication state unavailable');
+    }
+    try {
+        if (DIRECTORY_SEPARATOR !== '\\' && !@chmod($path, 0600)) throw new RuntimeException('Management authentication state permissions unavailable');
+        $raw = stream_get_contents($handle, 262145);
+        if ($raw === false || strlen($raw) > 262144) throw new RuntimeException('Invalid management authentication state');
+        $state = $raw === '' ? [] : json_decode($raw, true);
+        if (!is_array($state) || ($raw !== '' && !is_array($state['peers'] ?? null))) throw new RuntimeException('Invalid management authentication state');
+        $window = intdiv(time(), 60);
+        if (($state['window'] ?? null) !== $window) $state = ['window' => $window, 'peers' => []];
+
+        $peer = hash('sha256', telemetry_client_ip());
+        $peers = $state['peers'];
+        if (count($peers) > 1024) throw new RuntimeException('Invalid management authentication state');
+        foreach ($peers as $peerHash => $attempts) {
+            if (!is_string($peerHash) || !preg_match('/^[a-f0-9]{64}$/D', $peerHash) || !is_int($attempts) || $attempts < 0) {
+                throw new RuntimeException('Invalid management authentication state');
+            }
+        }
+        $failures = $peers[$peer] ?? 0;
+        if (!is_int($failures) || $failures < 0) throw new RuntimeException('Invalid management authentication state');
+        $maximum = telemetry_limit('PORTAL_TELEMETRY_AUTH_FAILURES_PER_MINUTE', 10, 100);
+        if ($failures >= $maximum) return ['authenticated' => false, 'limited' => true];
+
+        $expectedUser = portal_env('TELEMETRY_ADMIN_USER', 'admin');
+        $userMatches = strlen($user) <= 128 && hash_equals($expectedUser, $user);
+        $passwordMatches = strlen($password) <= 1024 && password_verify($password, $hash);
+        if ($userMatches && $passwordMatches) {
+            if (isset($peers[$peer])) {
+                unset($peers[$peer]);
+                $state['peers'] = $peers;
+                telemetry_write_auth_state($handle, $state);
+            }
+            return ['authenticated' => true, 'limited' => false];
+        }
+        if (!isset($peers[$peer]) && count($peers) >= 1024) return ['authenticated' => false, 'limited' => true];
+
+        $peers[$peer] = $failures + 1;
+        $state['window'] = $window;
+        $state['peers'] = $peers;
+        telemetry_write_auth_state($handle, $state);
+        return ['authenticated' => false, 'limited' => false];
+    } finally {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+}
+
+function telemetry_write_auth_state($handle, array $state): void {
+    $json = json_encode($state, JSON_THROW_ON_ERROR);
+    rewind($handle);
+    if (!ftruncate($handle, 0) || fwrite($handle, $json) !== strlen($json) || !fflush($handle)) {
+        throw new RuntimeException('Management authentication state update failed');
     }
 }
 
@@ -79,9 +156,11 @@ function telemetry_client_ip(): string {
 
     if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
         $forwarded = explode(',', (string)$_SERVER['HTTP_X_FORWARDED_FOR']);
-        $clientIp = trim($forwarded[0] ?? '');
-        if (filter_var($clientIp, FILTER_VALIDATE_IP)) {
-            return $clientIp;
+        if (count($forwarded) > 32) return $remote;
+        for ($index = count($forwarded) - 1; $index >= 0; $index--) {
+            $clientIp = trim($forwarded[$index]);
+            if (!filter_var($clientIp, FILTER_VALIDATE_IP)) return $remote;
+            if (!in_array($clientIp, $trustedList, true)) return $clientIp;
         }
     }
 
@@ -104,6 +183,15 @@ function telemetry_data_dir(): string {
     if ($normalize($path) === $normalize($root) || strpos($normalize($path), $normalize($root) . '/') === 0) {
         throw new RuntimeException('Telemetry storage must be outside document root');
     }
+    $normalizedPath = $normalize($path);
+    if ($normalizedPath === '' || preg_match('/^[a-z]:$/', $normalizedPath)) {
+        throw new RuntimeException('Filesystem root cannot be used for telemetry storage');
+    }
+    if (DIRECTORY_SEPARATOR !== '\\') {
+        if (!@chmod($path, 0700)) throw new RuntimeException('Telemetry storage permissions must be owner-only');
+        $permissions = @fileperms($path);
+        if ($permissions === false || ($permissions & 0077) !== 0) throw new RuntimeException('Telemetry storage permissions must be owner-only');
+    }
     return $path;
 }
 
@@ -122,6 +210,31 @@ function telemetry_message(string $message): string {
     return 'ClientError';
 }
 
+function telemetry_csp_directive(string $directive): string {
+    static $allowed = [
+        'default-src', 'script-src', 'script-src-elem', 'script-src-attr', 'style-src', 'style-src-elem',
+        'style-src-attr', 'connect-src', 'img-src', 'font-src', 'frame-src', 'frame-ancestors',
+        'form-action', 'base-uri', 'object-src', 'worker-src', 'manifest-src', 'media-src'
+    ];
+    return in_array($directive, $allowed, true) ? $directive : 'other';
+}
+
+function telemetry_blocked_class(string $blocked): string {
+    return in_array($blocked, ['inline', 'eval', 'wasm-eval', 'data', 'blob', 'external', 'other'], true) ? $blocked : 'other';
+}
+
+function telemetry_record_status(string $status): string {
+    return in_array($status, ['open', 'resolved', 'ignored'], true) ? $status : 'open';
+}
+
+function telemetry_iso_timestamp(mixed $value): ?string {
+    if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/D', $value)) return null;
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d\\TH:i:s\\Z', $value, new DateTimeZone('UTC'));
+    $errors = DateTimeImmutable::getLastErrors();
+    if (!$date || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))) return null;
+    return $date->format('Y-m-d\\TH:i:s\\Z');
+}
+
 function telemetry_url(string $url): string {
     if (in_array($url, ['inline', 'eval', 'wasm-eval', 'data', 'blob'], true)) return $url;
     $parts = parse_url($url);
@@ -133,10 +246,6 @@ function telemetry_url(string $url): string {
     } else {
         $hosts = ['manage.takao.me', 'reports.takao.me', 'api.amga.jp', 'guardian.amga.jp', 'staff.amga.jp', 'docs.amga.jp',
             'api-staging.amga.jp', 'guardian-staging.amga.jp', 'staff-staging.amga.jp', 'docs-staging.amga.jp', 'localhost', '127.0.0.1'];
-        if (isset($_SERVER['HTTP_HOST'])) {
-            $currentHost = strtolower(explode(':', $_SERVER['HTTP_HOST'])[0]);
-            if (!in_array($currentHost, $hosts, true)) $hosts[] = $currentHost;
-        }
     }
 
     if (!in_array(strtolower($parts['host']), $hosts, true)) return '[redacted-url]';
@@ -167,15 +276,25 @@ function telemetry_service(string $service): string {
 
 function telemetry_redact_rows(array $rows, bool $client): array {
     foreach ($rows as &$row) {
+        $row['id'] = max(0, (int)($row['id'] ?? 0));
+        $row['count'] = max(0, (int)($row['count'] ?? 0));
+        $row['first_seen_at'] = telemetry_iso_timestamp($row['first_seen_at'] ?? null);
+        $row['last_seen_at'] = telemetry_iso_timestamp($row['last_seen_at'] ?? null);
+        $row['status'] = telemetry_record_status((string)($row['status'] ?? 'open'));
         $row['service'] = telemetry_service((string)($row['service'] ?? 'unknown'));
         if ($client) {
             $row['url'] = telemetry_url((string)($row['url'] ?? ''));
             $row['source'] = telemetry_url((string)($row['source'] ?? ''));
             $row['message'] = telemetry_message((string)($row['message'] ?? ''));
             $row['stack'] = '';
+            $row['lineno'] = max(0, (int)($row['lineno'] ?? 0));
+            $row['colno'] = max(0, (int)($row['colno'] ?? 0));
         } else {
             $row['raw_blocked_uri'] = telemetry_url((string)($row['raw_blocked_uri'] ?? ''));
             $row['screen'] = telemetry_screen((string)($row['screen'] ?? ''));
+            $row['directive'] = telemetry_csp_directive((string)($row['directive'] ?? ''));
+            $row['blocked'] = telemetry_blocked_class((string)($row['blocked'] ?? ''));
+            $row['disposition'] = ($row['disposition'] ?? '') === 'report' ? 'report' : 'enforce';
         }
     }
     return $rows;
@@ -187,9 +306,11 @@ function telemetry_limit(string $name, int $default, int $maximum): int {
 }
 
 function telemetry_admit(string $dir): bool {
-    $handle = fopen($dir . '/ingest-quota.json', 'c+');
+    $quotaPath = $dir . '/ingest-quota.json';
+    $handle = @fopen($quotaPath, 'c+');
     if (!$handle || !flock($handle, LOCK_EX)) throw new RuntimeException('Quota state unavailable');
     try {
+        if (DIRECTORY_SEPARATOR !== '\\' && !@chmod($quotaPath, 0600)) throw new RuntimeException('Quota state permissions unavailable');
         $raw = stream_get_contents($handle, 262145);
         if ($raw === false || strlen($raw) > 262144) throw new RuntimeException('Invalid quota state');
         $state = $raw === '' ? [] : json_decode($raw, true);

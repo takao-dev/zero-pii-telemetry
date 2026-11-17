@@ -17,14 +17,23 @@ try {
     $db = telemetry_open($pending);
     $db->exec('PRAGMA secure_delete = ON');
     $db->beginTransaction();
-    foreach ($db->query('SELECT id,service,url,message,source FROM client_errors')->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $db->prepare('UPDATE client_errors SET service=?,url=?,message=?,source=?,stack=? WHERE id=?')->execute([
-            telemetry_service($row['service']), telemetry_url($row['url']), telemetry_message($row['message']), telemetry_url($row['source']), '', $row['id']
+    foreach ($db->query('SELECT id,service,url,message,source,lineno,colno,count,first_seen_at,last_seen_at FROM client_errors')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $db->prepare('UPDATE client_errors SET service=?,url=?,message=?,source=?,lineno=?,colno=?,stack=?,count=?,first_seen_at=?,last_seen_at=? WHERE id=?')->execute([
+            telemetry_service((string)$row['service']), telemetry_url(substr((string)$row['url'], 0, 2048)),
+            telemetry_message(substr((string)$row['message'], 0, 2048)), telemetry_url(substr((string)$row['source'], 0, 2048)),
+            max(0, (int)$row['lineno']), max(0, (int)$row['colno']), '', max(0, (int)$row['count']),
+            telemetry_iso_timestamp($row['first_seen_at']) ?? gmdate('Y-m-d\\TH:i:s\\Z'),
+            telemetry_iso_timestamp($row['last_seen_at']) ?? gmdate('Y-m-d\\TH:i:s\\Z'), $row['id']
         ]);
     }
-    foreach ($db->query('SELECT id,service,screen,raw_blocked_uri FROM csp_violations')->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $db->prepare('UPDATE csp_violations SET service=?,screen=?,raw_blocked_uri=? WHERE id=?')->execute([
-            telemetry_service($row['service']), telemetry_screen($row['screen']), telemetry_url($row['raw_blocked_uri'] ?? ''), $row['id']
+    foreach ($db->query('SELECT id,service,screen,directive,blocked,disposition,raw_blocked_uri,count,first_seen_at,last_seen_at FROM csp_violations')->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $db->prepare('UPDATE csp_violations SET service=?,screen=?,directive=?,blocked=?,disposition=?,raw_blocked_uri=?,count=?,first_seen_at=?,last_seen_at=? WHERE id=?')->execute([
+            telemetry_service((string)$row['service']), telemetry_screen((string)$row['screen']),
+            telemetry_csp_directive((string)$row['directive']), telemetry_blocked_class((string)$row['blocked']),
+            ($row['disposition'] ?? '') === 'report' ? 'report' : 'enforce',
+            telemetry_url(substr((string)($row['raw_blocked_uri'] ?? ''), 0, 2048)), max(0, (int)$row['count']),
+            telemetry_iso_timestamp($row['first_seen_at']) ?? gmdate('Y-m-d\\TH:i:s\\Z'),
+            telemetry_iso_timestamp($row['last_seen_at']) ?? gmdate('Y-m-d\\TH:i:s\\Z'), $row['id']
         ]);
     }
     $db->commit();

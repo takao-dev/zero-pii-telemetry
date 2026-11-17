@@ -737,17 +737,17 @@
         }
 
         const jsBadge = item.clientErrorsCount > 0 
-          ? `<span class="badge badge-warning" style="cursor:pointer;" onclick="showSiteErrors('${item.service}')">${item.clientErrorsCount.toLocaleString()} 件</span>`
+          ? `<span class="badge badge-warning" style="cursor:pointer;" onclick="showSiteErrors(${jsStringAttr(item.service)})">${item.clientErrorsCount.toLocaleString()} 件</span>`
           : '<span class="badge badge-success">0</span>';
 
         const cspBadge = item.criticalCsp > 0
-          ? `<span class="badge badge-critical" style="cursor:pointer;" onclick="showSiteCsp('${item.service}')">${item.cspCount.toLocaleString()} 件</span>`
+          ? `<span class="badge badge-critical" style="cursor:pointer;" onclick="showSiteCsp(${jsStringAttr(item.service)})">${item.cspCount.toLocaleString()} 件</span>`
           : (item.cspCount > 0 
-              ? `<span class="badge badge-warning" style="cursor:pointer;" onclick="showSiteCsp('${item.service}')">${item.cspCount.toLocaleString()} 件</span>` 
+              ? `<span class="badge badge-warning" style="cursor:pointer;" onclick="showSiteCsp(${jsStringAttr(item.service)})">${item.cspCount.toLocaleString()} 件</span>`
               : '<span class="badge badge-success">0</span>');
 
         html += `
-          <tr class="site-row" onclick="toggleExpand('${item.domain}')">
+          <tr class="site-row" onclick="toggleExpand(${jsStringAttr(item.domain)})">
             <td>
               <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <span style="font-size: 1rem;">🌐</span>
@@ -780,7 +780,7 @@
             <td>${cspBadge}</td>
             <td>${healthBadge}</td>
             <td style="text-align: center;">
-              <button class="btn btn-sm" onclick="toggleExpand('${item.domain}', event)">
+              <button class="btn btn-sm" onclick="toggleExpand(${jsStringAttr(item.domain)}, event)">
                 ${isExpanded ? '▲ 閉じる' : '▼ 人気記事'}
               </button>
             </td>
@@ -816,8 +816,8 @@
                     📈 ${escapeHtml(item.domain)} の人気アクセス記事 (Top 5)
                   </div>
                   <div style="display: flex; gap: 0.5rem;">
-                    <button class="btn btn-sm" onclick="showSiteCsp('${item.service}')">🛡️ このサイトのCSPログ</button>
-                    <button class="btn btn-sm" onclick="showSiteErrors('${item.service}')">💥 このサイトのエラーログ</button>
+                    <button class="btn btn-sm" onclick="showSiteCsp(${jsStringAttr(item.service)})">🛡️ このサイトのCSPログ</button>
+                    <button class="btn btn-sm" onclick="showSiteErrors(${jsStringAttr(item.service)})">💥 このサイトのエラーログ</button>
                   </div>
                 </div>
                 <div class="top-pages-list">
@@ -965,19 +965,19 @@
       if (currentTab === 'overview') {
         csv += 'サイト/ドメイン,本日PV,本日Visits,週間PV,週間Visits,月間PV,月間Visits,CDNキャッシュ設定,JSエラー件数,CSP警告件数,健全度\n';
         cachedData.sitesOverview.forEach(s => {
-          csv += `"${s.domain}",${s.todayViews},${s.todayVisits},${s.weekViews},${s.weekVisits},${s.monthViews},${s.monthVisits},"${s.cacheStatus}",${s.clientErrorsCount},${s.cspCount},"${s.health}"\n`;
+          csv += [s.domain, s.todayViews, s.todayVisits, s.weekViews, s.weekVisits, s.monthViews, s.monthVisits, s.cacheStatus, s.clientErrorsCount, s.cspCount, s.health].map(csvCell).join(',') + '\n';
         });
         downloadFile(csv, `traffic_summary_${nowStr}.csv`);
       } else if (currentTab === 'csp') {
         csv += '日時,サービス,画面,ディレクティブ,遮断種別,累積回数,状態,ブロックURI\n';
         (cachedData.incidents || []).forEach(i => {
-          csv += `"${i.last_seen_at}","${i.service}","${i.screen}","${i.directive}","${i.blocked}",${i.count},"${i.status}","${(i.raw_blocked_uri||'').replace(/"/g, '""')}"\n`;
+          csv += [i.last_seen_at, i.service, i.screen, i.directive, i.blocked, i.count, i.status, i.raw_blocked_uri].map(csvCell).join(',') + '\n';
         });
         downloadFile(csv, `csp_incidents_${nowStr}.csv`);
       } else {
         csv += '日時,サービス,エラーメッセージ,発生元,URL,累積回数,状態\n';
         (cachedData.clientErrors || []).forEach(e => {
-          csv += `"${e.last_seen_at}","${e.service}","${(e.message||'').replace(/"/g, '""')}","${e.source}",${e.url},${e.count},"${e.status}"\n`;
+          csv += [e.last_seen_at, e.service, e.message, e.source, e.url, e.count, e.status].map(csvCell).join(',') + '\n';
         });
         downloadFile(csv, `client_errors_${nowStr}.csv`);
       }
@@ -1004,6 +1004,16 @@
       return String(str).replace(/[&<>"']/g, m => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       })[m]);
+    }
+
+    function jsStringAttr(value) {
+      return escapeHtml(JSON.stringify(String(value ?? '')));
+    }
+
+    function csvCell(value) {
+      let text = String(value ?? '');
+      if (/^[\x00-\x20]*[=+\-@]/.test(text)) text = "'" + text;
+      return '"' + text.replace(/"/g, '""') + '"';
     }
 
     refreshBtn.addEventListener('click', fetchMetrics);

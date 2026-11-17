@@ -4,6 +4,8 @@
 
 管理APIにはHTTP Basic認証が必須です。`TELEMETRY_ADMIN_PASSWORD_HASH` が未設定・不正な場合は503で拒否し、認証情報がない・不正な場合は401で拒否します。収集APIは認証なしで使用できます。
 
+管理認証はクライアントごとに1分あたり10回の失敗で制限します（`TELEMETRY_AUTH_FAILURES_PER_MINUTE`、最大100回）。プロキシやWAFにも制限を設定してください。同じ信頼済みプロキシ経由の利用者は同じ制限を共有します。
+
 1. `.env.example` を `.env` にコピーします。
 2. `php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'` で強い管理パスワードのハッシュを作成し、`.env` の `TELEMETRY_ADMIN_PASSWORD_HASH` に**単一引用符で囲んで**設定します。PHPが手元にない場合は、`docker compose run --rm telemetry php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'` を使えます。
 3. `TELEMETRY_ADMIN_USER`（既定値 `admin`）と `TELEMETRY_MANAGEMENT_ORIGIN`（管理画面の正確なオリジン）を設定します。単体PHPでは後者を `PORTAL_MANAGEMENT_ORIGIN` として設定してください。

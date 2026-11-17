@@ -6,6 +6,7 @@ RUN apk add --no-cache sqlite-dev \
 
 # Set up outside-docroot telemetry data directory
 RUN mkdir -p /var/lib/telemetry /var/www/html \
+    && chmod 700 /var/lib/telemetry \
     && chown -R www-data:www-data /var/lib/telemetry /var/www/html
 
 WORKDIR /var/www/html

@@ -4,6 +4,8 @@
 
 Management APIs require HTTP Basic authentication. Missing/invalid `TELEMETRY_ADMIN_PASSWORD_HASH` fails closed with503; missing/wrong credentials return401. Public ingestion remains unauthenticated.
 
+Management authentication allows 10 failed attempts per client peer per minute by default (`TELEMETRY_AUTH_FAILURES_PER_MINUTE`, maximum 100). Put a rate limit at the proxy or WAF too; users sharing one trusted proxy address share the app limit.
+
 1. Copy `.env.example` to `.env`.
 2. Generate a hash with `php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'` and put it in `TELEMETRY_ADMIN_PASSWORD_HASH` in **single quotes** to preserve dollar signs. Without local PHP, use `docker compose run --rm telemetry php -r 'echo password_hash(readline("Admin password: "), PASSWORD_DEFAULT), PHP_EOL;'`.
 3. Set `TELEMETRY_ADMIN_USER` (default `admin`) and `TELEMETRY_MANAGEMENT_ORIGIN` to the exact dashboard origin. Standalone PHP uses `PORTAL_MANAGEMENT_ORIGIN` for the latter.

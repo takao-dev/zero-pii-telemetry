@@ -43,9 +43,22 @@ if (!in_array($format, ['csv', 'json'], true)) {
     exit(1);
 }
 
-$days = max(1, (int)($options['days'] ?? 30));
+$daysText = (string)($options['days'] ?? '30');
+if (!ctype_digit($daysText) || (int)$daysText < 1 || (int)$daysText > 3650) {
+    fwrite(STDERR, "Error: --days must be between 1 and 3650\n");
+    exit(1);
+}
+$days = (int)$daysText;
 $type = strtolower((string)($options['type'] ?? 'all'));
 $serviceFilter = isset($options['service']) ? trim((string)$options['service']) : null;
+if (!in_array($type, ['all', 'csp', 'error'], true)) {
+    fwrite(STDERR, "Error: --type must be all, csp, or error\n");
+    exit(1);
+}
+if ($serviceFilter !== null && !preg_match('/^[a-zA-Z0-9_.-]{1,48}$/D', $serviceFilter)) {
+    fwrite(STDERR, "Error: --service must contain 1-48 letters, numbers, dots, underscores, or hyphens\n");
+    exit(1);
+}
 $outputPath = isset($options['output']) ? (string)$options['output'] : null;
 
 try {
@@ -61,12 +74,12 @@ try {
     exit(1);
 }
 
-$since = time() - ($days * 86400);
+$since = gmdate('Y-m-d\\TH:i:s\\Z', time() - ($days * 86400));
 $results = [];
 
 // Export CSP violations
 if ($type === 'all' || $type === 'csp') {
-    $sql = "SELECT 'csp' AS record_type, service, directive, blocked_uri AS uri_or_source, count, first_seen_at, last_seen_at FROM csp_violations WHERE last_seen_at >= :since";
+    $sql = "SELECT 'csp' AS record_type, service, directive, raw_blocked_uri AS uri_or_source, count, first_seen_at, last_seen_at FROM csp_violations WHERE last_seen_at >= :since";
     $params = [':since' => $since];
     if ($serviceFilter !== null) {
         $sql .= " AND service = :service";
@@ -76,7 +89,15 @@ if ($type === 'all' || $type === 'csp') {
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $results[] = $row;
+        $results[] = [
+            'record_type' => 'csp',
+            'service' => telemetry_service((string)$row['service']),
+            'directive' => telemetry_csp_directive((string)$row['directive']),
+            'uri_or_source' => telemetry_url(substr((string)$row['uri_or_source'], 0, 2048)),
+            'count' => max(0, (int)$row['count']),
+            'first_seen_at' => telemetry_iso_timestamp($row['first_seen_at']),
+            'last_seen_at' => telemetry_iso_timestamp($row['last_seen_at']),
+        ];
     }
 }
 
@@ -92,7 +113,15 @@ if ($type === 'all' || $type === 'error') {
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
     while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $results[] = $row;
+        $results[] = [
+            'record_type' => 'error',
+            'service' => telemetry_service((string)$row['service']),
+            'directive' => telemetry_message(substr((string)$row['directive'], 0, 2048)),
+            'uri_or_source' => telemetry_url(substr((string)$row['uri_or_source'], 0, 2048)),
+            'count' => max(0, (int)$row['count']),
+            'first_seen_at' => telemetry_iso_timestamp($row['first_seen_at']),
+            'last_seen_at' => telemetry_iso_timestamp($row['last_seen_at']),
+        ];
     }
 }
 
@@ -103,11 +132,11 @@ if ($format === 'json') {
         'period_days' => $days,
         'record_count' => count($results),
         'records' => $results,
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR) . "\n";
 } else {
     $sanitizeCsv = static function(mixed $val): string {
         $str = (string)$val;
-        if ($str !== '' && in_array($str[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+        if ($str !== '' && preg_match('/^[\x00-\x20]*[=+\-@]/', $str)) {
             return "'" . $str;
         }
         return $str;
@@ -121,8 +150,8 @@ if ($format === 'json') {
             $sanitizeCsv($r['directive']),
             $sanitizeCsv($r['uri_or_source']),
             $r['count'],
-            date('c', (int)$r['first_seen_at']),
-            date('c', (int)$r['last_seen_at']),
+            $r['first_seen_at'] ?? '',
+            $r['last_seen_at'] ?? '',
         ]);
     }
     rewind($fp);
@@ -131,8 +160,29 @@ if ($format === 'json') {
 }
 
 if ($outputPath !== null) {
-    if (file_put_contents($outputPath, $output) === false) {
-        fwrite(STDERR, "Failed to write export to {$outputPath}\n");
+    $previousMask = umask(0077);
+    $fp = @fopen($outputPath, 'xb');
+    umask($previousMask);
+    if (!$fp) {
+        fwrite(STDERR, "Failed to create export file (existing files are never overwritten)\n");
+        exit(1);
+    }
+    $created = true;
+    try {
+        if (DIRECTORY_SEPARATOR !== '\\' && !@chmod($outputPath, 0600)) throw new RuntimeException('Export permissions unavailable');
+        $offset = 0;
+        while ($offset < strlen($output)) {
+            $written = fwrite($fp, substr($output, $offset));
+            if ($written === false || $written === 0) throw new RuntimeException('Export write failed');
+            $offset += $written;
+        }
+        if (!fflush($fp)) throw new RuntimeException('Export flush failed');
+        fclose($fp);
+        $fp = null;
+    } catch (Throwable $e) {
+        if (is_resource($fp)) fclose($fp);
+        if ($created) @unlink($outputPath);
+        fwrite(STDERR, "Failed to write the export file\n");
         exit(1);
     }
     fwrite(STDERR, "Exported " . count($results) . " records to {$outputPath}\n");
