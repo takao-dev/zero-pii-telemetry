@@ -309,6 +309,42 @@ function telemetry_limit(string $name, int $default, int $maximum): int {
     return $value !== null && ctype_digit($value) ? min($maximum, max(1, (int)$value)) : $default;
 }
 
+/** Reserve bounded capacity only for genuinely new report fingerprints.
+ * Callers must already hold a write transaction so the row and daily budgets are atomic.
+ * Returns null when admitted, 'capacity' at the hard row ceiling, or 'daily_quota' when a budget is exhausted.
+ */
+function telemetry_admit_unique_row(PDO $db, string $table, string $fingerprint): ?string {
+    if (!in_array($table, ['csp_violations', 'client_errors'], true)) {
+        throw new InvalidArgumentException('Unsupported telemetry table');
+    }
+
+    $existing = $db->prepare("SELECT 1 FROM {$table} WHERE fingerprint = ? LIMIT 1");
+    $existing->execute([$fingerprint]);
+    if ($existing->fetchColumn() !== false) return null;
+
+    $maxRows = telemetry_limit('PORTAL_TELEMETRY_MAX_ROWS', 100000, 1000000);
+    $rowCount = (int)$db->query('SELECT (SELECT COUNT(*) FROM csp_violations) + (SELECT COUNT(*) FROM client_errors)')->fetchColumn();
+    if ($rowCount >= $maxRows) return 'capacity';
+
+    // Allow for up to 91 UTC date buckets in a rolling 90-day retention window and leave half the rows for existing data.
+    $dailyCeiling = max(1, intdiv($maxRows, 182));
+    $dailyLimit = telemetry_limit('PORTAL_TELEMETRY_NEW_ROWS_PER_DAY', $dailyCeiling, $dailyCeiling);
+    $peerCeiling = min(100, $dailyLimit);
+    $peerLimit = telemetry_limit('PORTAL_TELEMETRY_PEER_NEW_ROWS_PER_DAY', $peerCeiling, $peerCeiling);
+    $day = gmdate('Y-m-d');
+    $peerHash = hash('sha256', telemetry_client_ip());
+    $readQuota = $db->prepare('SELECT unique_rows FROM telemetry_ingest_daily WHERE day = ? AND peer_hash = ?');
+    $readQuota->execute([$day, '*']);
+    if ((int)$readQuota->fetchColumn() >= $dailyLimit) return 'daily_quota';
+    $readQuota->execute([$day, $peerHash]);
+    if ((int)$readQuota->fetchColumn() >= $peerLimit) return 'daily_quota';
+
+    $reserve = $db->prepare('INSERT INTO telemetry_ingest_daily(day, peer_hash, unique_rows) VALUES (?, ?, 1) ON CONFLICT(day, peer_hash) DO UPDATE SET unique_rows = telemetry_ingest_daily.unique_rows + 1');
+    $reserve->execute([$day, '*']);
+    $reserve->execute([$day, $peerHash]);
+    return null;
+}
+
 function telemetry_admit(string $dir): bool {
     $quotaPath = $dir . '/ingest-quota.json';
     $handle = @fopen($quotaPath, 'c+');
@@ -345,6 +381,27 @@ function telemetry_health(?PDO $db): array {
     return ['state' => $limited ? 'capacity_limited' : ($last ? 'observed' : 'no_reports'), 'lastReceivedAt' => $last ?: null];
 }
 
+function telemetry_reserve_notification_attempt(PDO $db, int $now): bool {
+    $windowStart = intdiv($now, 3600) * 3600;
+    $limit = telemetry_limit('PORTAL_TELEMETRY_WEBHOOKS_PER_HOUR', 30, 1000);
+    $db->exec('BEGIN IMMEDIATE');
+    try {
+        $read = $db->prepare('SELECT attempt_count FROM alert_notification_quota WHERE window_start = ?');
+        $read->execute([$windowStart]);
+        if ((int)$read->fetchColumn() >= $limit) {
+            $db->exec('COMMIT');
+            return false;
+        }
+        $reserve = $db->prepare('INSERT INTO alert_notification_quota(window_start, attempt_count) VALUES (?, 1) ON CONFLICT(window_start) DO UPDATE SET attempt_count = alert_notification_quota.attempt_count + 1');
+        $reserve->execute([$windowStart]);
+        $db->exec('COMMIT');
+        return true;
+    } catch (Throwable $e) {
+        try { $db->exec('ROLLBACK'); } catch (Throwable $rollbackError) {}
+        throw $e;
+    }
+}
+
 function telemetry_notify(PDO $db, array $alert): void {
     $url = portal_env('CSP_WEBHOOK_URL');
     if (!$url || !function_exists('curl_init')) return;
@@ -365,6 +422,7 @@ function telemetry_notify(PDO $db, array $alert): void {
     $stmt = $db->prepare('SELECT last_notified_at FROM alert_notifications WHERE fingerprint = ?');
     $stmt->execute([$key]);
     if ((int)$stmt->fetchColumn() > time() - 3600) return;
+    if (!telemetry_reserve_notification_attempt($db, time())) return;
     $handle = curl_init($url);
     curl_setopt_array($handle, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode(['text' => 'Telemetry alert: ' . ($alert['kind'] ?? 'csp') . '. Check the private dashboard.']),
         CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT_MS => 1500, CURLOPT_FOLLOWLOCATION => false]);

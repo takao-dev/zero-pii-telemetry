@@ -145,9 +145,14 @@ window.addEventListener('unhandledrejection', (event) => {
 | `TELEMETRY_ALLOWED_SCREENS` | Comma-separated list of recognized screen/route names | Common defaults |
 | `TELEMETRY_REQUESTS_PER_MINUTE` | Global rate limit ceiling per minute | `600` |
 | `TELEMETRY_PEER_REQUESTS_PER_MINUTE` | Per-IP rate limit ceiling per minute | `120` |
+| `TELEMETRY_NEW_ROWS_PER_DAY` | Maximum new unique report rows per UTC day; capped at `TELEMETRY_MAX_ROWS / 182` | `549` |
+| `TELEMETRY_PEER_NEW_ROWS_PER_DAY` | Maximum new unique report rows per verified peer per UTC day | `100` |
+| `TELEMETRY_WEBHOOKS_PER_HOUR` | Global maximum webhook attempts per hour | `30` |
 | `TELEMETRY_MAX_BYTES` | Maximum SQLite database file size before backpressure | `67108864` (64 MB) |
-| `TELEMETRY_MAX_ROWS` | Maximum record count before GC or ingestion pause | `100000` |
+| `TELEMETRY_MAX_ROWS` | Hard maximum record count; also sets the upper bound for daily unique-row quotas | `100000` |
 | `CSP_WEBHOOK_URL` | Optional Slack or Discord incoming webhook for critical alerts | `""` |
+
+The collector is an unauthenticated browser-report endpoint by design. Keep it behind a trusted proxy, configure verified client-IP forwarding, and apply network-level abuse controls. Duplicate reports continue updating existing records when a daily unique-row budget is reached; new unique reports receive `429` until the UTC day resets.
 
 ---
 

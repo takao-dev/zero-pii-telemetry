@@ -5,7 +5,7 @@
  *
  * Receives W3C CSP violation reports & client-side JS crashes,
  * filters browser extension noise, deduplicates into local SQLite (WAL),
- * executes automatic data retention GC (90 days), and dispatches critical alerts with cooldown.
+ * executes automatic data retention GC (90 days), and dispatches critical alerts with per-key and global quotas.
  */
 
 declare(strict_types=1);
@@ -189,6 +189,16 @@ try {
             fingerprint TEXT PRIMARY KEY,
             last_notified_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS alert_notification_quota (
+            window_start INTEGER PRIMARY KEY,
+            attempt_count INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS telemetry_ingest_daily (
+            day TEXT NOT NULL,
+            peer_hash TEXT NOT NULL,
+            unique_rows INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(day, peer_hash)
+        );
     ');
 
     // Auto-migration for existing databases: ensure status column exists
@@ -220,6 +230,11 @@ try {
             $sevenDaysAgo = time() - (7 * 86400);
             $pdo->prepare('DELETE FROM alert_notifications WHERE last_notified_at < :cutoff')
                 ->execute([':cutoff' => $sevenDaysAgo]);
+            $today = gmdate('Y-m-d');
+            $pdo->prepare('DELETE FROM alert_notification_quota WHERE window_start < :cutoff')
+                ->execute([':cutoff' => time() - (7 * 86400)]);
+            $pdo->prepare('DELETE FROM telemetry_ingest_daily WHERE day < :today')
+                ->execute([':today' => $today]);
 
             $pdo->exec('PRAGMA optimize;');
             file_put_contents($dataDir . '/last-gc', (string)time(), LOCK_EX);
@@ -230,11 +245,6 @@ try {
     }
 
     $pdo->exec('BEGIN IMMEDIATE');
-    $rowCount = (int)$pdo->query('SELECT (SELECT COUNT(*) FROM csp_violations) + (SELECT COUNT(*) FROM client_errors)')->fetchColumn();
-    if ($rowCount >= telemetry_limit('PORTAL_TELEMETRY_MAX_ROWS', 100000, 1000000)) {
-        header('Retry-After: 60'); http_response_code(503); exit;
-    }
-
     $queryService = $_GET['service'] ?? null;
     $today = gmdate('Y-m-d');
     $now = gmdate('Y-m-d\TH:i:s\Z');
@@ -281,6 +291,18 @@ try {
         $stack = '';
         $shortSource = $rawSource;
         $fingerprint = hash('sha256', "{$today}:{$service}:{$rawMsg}:{$shortSource}:{$lineno}");
+
+        $quotaRejection = telemetry_admit_unique_row($pdo, 'client_errors', $fingerprint);
+        if ($quotaRejection !== null) {
+            $pdo->exec('ROLLBACK');
+            if ($quotaRejection === 'capacity') {
+                header('Retry-After: 60'); http_response_code(503);
+            } else {
+                header('Retry-After: ' . max(1, 86400 - (time() % 86400)));
+                http_response_code(429);
+            }
+            exit;
+        }
 
         $stmt = $pdo->prepare('
             INSERT INTO client_errors (service, url, message, source, lineno, colno, stack, count, first_seen_at, last_seen_at, fingerprint, status)
@@ -389,6 +411,18 @@ try {
 
         // Fingerprint Deduplication (Day-scoped)
         $fingerprint = hash('sha256', "{$today}:{$service}:{$screen}:{$directive}:{$blocked}:{$disposition}");
+
+        $quotaRejection = telemetry_admit_unique_row($pdo, 'csp_violations', $fingerprint);
+        if ($quotaRejection !== null) {
+            $pdo->exec('ROLLBACK');
+            if ($quotaRejection === 'capacity') {
+                header('Retry-After: 60'); http_response_code(503);
+            } else {
+                header('Retry-After: ' . max(1, 86400 - (time() % 86400)));
+                http_response_code(429);
+            }
+            exit;
+        }
 
         $stmt = $pdo->prepare('
             INSERT INTO csp_violations (service, screen, directive, blocked, disposition, raw_blocked_uri, count, first_seen_at, last_seen_at, fingerprint, status)

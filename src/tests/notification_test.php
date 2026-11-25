@@ -12,6 +12,8 @@ require_once dirname(__DIR__) . '/telemetry.php';
 function check(bool $ok, string $message): void { if (!$ok) throw new RuntimeException($message); }
 $db = new PDO('sqlite::memory:');
 $db->exec('CREATE TABLE alert_notifications(fingerprint TEXT PRIMARY KEY,last_notified_at INTEGER NOT NULL)');
+$db->exec('CREATE TABLE alert_notification_quota(window_start INTEGER PRIMARY KEY,attempt_count INTEGER NOT NULL DEFAULT 0)');
+putenv('PORTAL_TELEMETRY_WEBHOOKS_PER_HOUR=3');
 putenv('CSP_WEBHOOK_URL=https://hooks.slack.com/services/synthetic');
 $alert = ['fingerprint' => 'synthetic', 'kind' => 'client_error'];
 telemetry_notify($db, $alert);
@@ -31,4 +33,7 @@ putenv('CSP_WEBHOOK_URL=https://monitor.example.com/hook');
 putenv('PORTAL_TELEMETRY_WEBHOOK_ORIGINS=https://monitor.example.com');
 telemetry_notify($db, ['fingerprint' => 'custom']);
 check($calls === $before + 1, 'Approved custom destination rejected');
-echo "Notification regression: success, failure, cooldown, redirect refusal, client errors, approved custom destination passed\n";
+telemetry_notify($db, ['fingerprint' => 'hourly-limit']);
+check($calls === $before + 1, 'Global hourly notification cap ignored');
+check((int)$db->query('SELECT SUM(attempt_count) FROM alert_notification_quota')->fetchColumn() === 3, 'Hourly attempts not capped');
+echo "Notification regression: delivery, cooldown, destination validation, and global hourly cap passed\n";

@@ -186,10 +186,42 @@ class TelemetryTests(unittest.TestCase):
             self.assertEqual([request(origin, 'collector.php', csp())[0] for _ in range(3)], [204, 204, 429])
         with server(PORTAL_TELEMETRY_MAX_ROWS='1', PORTAL_TELEMETRY_SERVICES='first,second') as (origin, _):
             self.assertEqual(request(origin, 'collector.php?service=first', csp())[0], 204)
+            self.assertEqual(request(origin, 'collector.php?service=first', csp())[0], 204)
             self.assertEqual(request(origin, 'collector.php?service=second', csp())[0], 503)
         with server(PORTAL_TELEMETRY_MAX_BYTES='1') as (origin, _):
             self.assertEqual(request(origin, 'collector.php', csp())[0], 204)
             self.assertEqual(request(origin, 'collector.php', csp())[0], 503)
+
+    def test_daily_unique_row_budgets_preserve_duplicates_and_isolate_peers(self):
+        with server(PORTAL_TELEMETRY_MAX_ROWS='1000',
+                    PORTAL_TELEMETRY_NEW_ROWS_PER_DAY='2',
+                    PORTAL_TELEMETRY_PEER_NEW_ROWS_PER_DAY='1',
+                    PORTAL_TRUSTED_PROXIES='127.0.0.1',
+                    PORTAL_TELEMETRY_ALLOWED_HOSTS='app.example.com',
+                    PORTAL_TELEMETRY_SERVICES='app') as (origin, private):
+            def report(line):
+                return {'type': 'client-error', 'message': 'TypeError',
+                        'source': 'https://app.example.com/assets/app.js',
+                        'url': 'https://app.example.com/', 'lineno': line}
+
+            def from_peer(ip, line):
+                return request(origin, 'collector.php?service=app', report(line),
+                               headers={'CF-Connecting-IP': ip})[0]
+
+            self.assertEqual(from_peer('203.0.113.10', 10), 204)
+            self.assertEqual(from_peer('203.0.113.10', 10), 204)
+            self.assertEqual(from_peer('203.0.113.10', 11), 429)
+            self.assertEqual(from_peer('203.0.113.11', 11), 204)
+            self.assertEqual(from_peer('203.0.113.12', 12), 429)
+
+            with database(private / 'telemetry.sqlite') as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM client_errors').fetchone()[0], 2)
+                self.assertEqual(db.execute('SELECT count FROM client_errors WHERE lineno=10').fetchone()[0], 2)
+
+    def test_notification_global_hourly_quota(self):
+        result = subprocess.run(PHP_ARGS + [str(ROOT / 'tests/notification_test.php')],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_trusted_proxy_uses_the_rightmost_untrusted_forwarded_peer(self):
         with server(PORTAL_TRUSTED_PROXIES='127.0.0.1',

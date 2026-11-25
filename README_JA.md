@@ -85,8 +85,13 @@ docker compose up -d
 TELEMETRY_DATA_DIR=/var/lib/telemetry
 TELEMETRY_ALLOWED_HOSTS=app.example.com,api.example.com
 TELEMETRY_SERVICES=frontend,admin-portal
+TELEMETRY_NEW_ROWS_PER_DAY=549
+TELEMETRY_PEER_NEW_ROWS_PER_DAY=100
+TELEMETRY_WEBHOOKS_PER_HOUR=30
 CSP_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
 ```
+
+コレクターはブラウザレポートを受けるため、認証なしの公開エンドポイントです。信頼するプロキシの背後に置き、クライアントIPの転送を検証して、ネットワーク側の不正利用対策も設定してください。重複レポートは既存行を更新します。日次の新規行枠に達すると、そのUTC日が切り替わるまで新規レポートに `429` を返します。`TELEMETRY_NEW_ROWS_PER_DAY` の上限は `TELEMETRY_MAX_ROWS / 182` です。
 
 ---
 
