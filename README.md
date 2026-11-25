@@ -19,7 +19,7 @@ Use TLS and a reverse proxy for external access, route the public hostname only 
 [![CodeQL](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/codeql.yml/badge.svg)](https://github.com/takao-dev/zero-pii-telemetry/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](docker-compose.yml)
-[![PHP](https://img.shields.io/badge/PHP-8.2%20%7C%208.3-777BB4.svg)]()
+[![PHP](https://img.shields.io/badge/PHP-8.2%20%7C%208.3%20%7C%208.6-777BB4.svg)]()
 [![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57.svg)]()
 
 A lightweight, self-hosted **W3C Content Security Policy (CSP) violation & client-side JavaScript crash collector** with a single-page monitoring dashboard.
