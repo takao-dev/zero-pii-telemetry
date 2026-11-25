@@ -402,9 +402,9 @@ function telemetry_reserve_notification_attempt(PDO $db, int $now): bool {
     }
 }
 
-function telemetry_notify(PDO $db, array $alert): void {
+function telemetry_notify(PDO $db, array $alert, ?callable $transport = null): void {
     $url = portal_env('CSP_WEBHOOK_URL');
-    if (!$url || !function_exists('curl_init')) return;
+    if (!$url || (!$transport && !function_exists('curl_init'))) return;
     $parts = parse_url($url);
     $allowed = ['https://hooks.slack.com', 'https://discord.com', 'https://discordapp.com'];
     foreach (explode(',', portal_env('PORTAL_TELEMETRY_WEBHOOK_ORIGINS') ?: '') as $entry) {
@@ -423,12 +423,25 @@ function telemetry_notify(PDO $db, array $alert): void {
     $stmt->execute([$key]);
     if ((int)$stmt->fetchColumn() > time() - 3600) return;
     if (!telemetry_reserve_notification_attempt($db, time())) return;
-    $handle = curl_init($url);
-    curl_setopt_array($handle, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode(['text' => 'Telemetry alert: ' . ($alert['kind'] ?? 'csp') . '. Check the private dashboard.']),
-        CURLOPT_HTTPHEADER => ['Content-Type: application/json'], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT_MS => 1500, CURLOPT_FOLLOWLOCATION => false]);
-    $result = curl_exec($handle);
-    $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
-    curl_close($handle);
+    $request = [
+        'method' => 'POST',
+        'body' => json_encode(['text' => 'Telemetry alert: ' . ($alert['kind'] ?? 'csp') . '. Check the private dashboard.']),
+        'headers' => ['Content-Type: application/json'],
+        'timeoutMs' => 1500,
+        'followRedirects' => false,
+    ];
+    if ($transport) {
+        $response = $transport($url, $request);
+        $result = $response['body'] ?? false;
+        $status = (int)($response['status'] ?? 0);
+    } else {
+        $handle = curl_init($url);
+        curl_setopt_array($handle, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $request['body'],
+            CURLOPT_HTTPHEADER => $request['headers'], CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT_MS => $request['timeoutMs'], CURLOPT_FOLLOWLOCATION => $request['followRedirects']]);
+        $result = curl_exec($handle);
+        $status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
+        curl_close($handle);
+    }
     if ($result !== false && $status >= 200 && $status < 300) {
         $db->prepare('INSERT INTO alert_notifications(fingerprint,last_notified_at) VALUES (?,?) ON CONFLICT(fingerprint) DO UPDATE SET last_notified_at=excluded.last_notified_at')->execute([$key,time()]);
     }
