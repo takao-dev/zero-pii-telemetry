@@ -42,7 +42,7 @@ def server(**settings):
                    PORTAL_MANAGEMENT_ORIGIN=origin, CSP_WEBHOOK_URL='', OPERATIONS_DATA_DIR=private,
                    TELEMETRY_ADMIN_USER='admin', TELEMETRY_ADMIN_PASSWORD_HASH=ADMIN_HASH)
         env.update(settings)
-        process = subprocess.Popen(PHP_ARGS + ['-d', 'display_errors=0', '-S', f'127.0.0.1:{port}', '-t', str(ROOT)],
+        process = subprocess.Popen(PHP_ARGS + ['-d', 'display_errors=0', '-S', f'127.0.0.1:{port}', '-t', str(ROOT), str(ROOT / 'router.php')],
                                    env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         try:
             for _ in range(100):
@@ -77,6 +77,20 @@ def csp(service='synthetic'):
                           'effective-directive': 'script-src', 'disposition': 'report'}}
 
 class TelemetryTests(unittest.TestCase):
+    def test_dashboard_and_api_disallow_framing(self):
+        with server() as (origin, _):
+            for path in ('index.html', 'api/metrics.php'):
+                request_url = urllib.request.Request(origin + '/' + path, headers={
+                    'Authorization': 'Basic ' + base64.b64encode(('admin:' + ADMIN_PASSWORD).encode()).decode(),
+                })
+                response = urllib.request.urlopen(request_url, timeout=10)
+                self.assertEqual(response.headers.get('Content-Security-Policy'), "frame-ancestors 'none'")
+                self.assertEqual(response.headers.get('X-Frame-Options'), 'DENY')
+
+            for path in ('router.php', 'telemetry.php', 'tools/export-telemetry.php', 'tests/notification_test.php'):
+                status, _ = request(origin, path, authenticate=False)
+                self.assertEqual(status, 404, path)
+
     def test_management_authentication_cannot_be_replaced_by_origin_headers(self):
         with server() as (origin, private):
             self.assertEqual(request(origin, 'collector.php', csp(), authenticate=False)[0], 204)

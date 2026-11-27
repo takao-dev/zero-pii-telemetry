@@ -199,6 +199,27 @@ function telemetry_data_dir(): string {
     return $path;
 }
 
+/** Probe actual create/write access instead of relying on platform-specific mode checks. */
+function telemetry_directory_writable(string $directory): bool {
+    try {
+        $probePath = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . '.write-check-' . bin2hex(random_bytes(16));
+    } catch (Throwable $e) {
+        return false;
+    }
+
+    $handle = @fopen($probePath, 'x+b');
+    if (!is_resource($handle)) return false;
+
+    $writable = false;
+    try {
+        $writable = fwrite($handle, "\0") === 1 && fflush($handle);
+    } finally {
+        fclose($handle);
+        if (file_exists($probePath)) $writable = @unlink($probePath) && $writable;
+    }
+    return $writable;
+}
+
 function telemetry_open(string $path): PDO {
     $db = new PDO('sqlite:' . $path);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);

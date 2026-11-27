@@ -1,3 +1,7 @@
 RewriteEngine On
+<IfModule mod_headers.c>
+  Header always set Content-Security-Policy "frame-ancestors 'none'"
+  Header always set X-Frame-Options "DENY"
+</IfModule>
 # Defense in depth for legacy files. The configured database must still live outside DocumentRoot.
 RewriteRule ^(?:data(?:/|$)|config\.json$|.*\.(?:sqlite(?:-wal|-shm)?|db|bak)$) - [F,L,NC]

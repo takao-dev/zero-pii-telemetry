@@ -22,4 +22,4 @@ EXPOSE 8080
 
 USER www-data
 
-CMD ["php", "-d", "display_errors=0", "-S", "0.0.0.0:8080", "-t", "/var/www/html"]
+CMD ["php", "-d", "display_errors=0", "-S", "0.0.0.0:8080", "-t", "/var/www/html", "/var/www/html/router.php"]

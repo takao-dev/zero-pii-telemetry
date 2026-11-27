@@ -97,6 +97,8 @@ CSP_WEBHOOK_URL=https://hooks.slack.com/services/xxx/yyy/zzz
 
 ## 📡 クライアントからのレポート送信
 
+同梱DockerのPHPサーバーとApache設定は、ダッシュボードとAPIに `Content-Security-Policy: frame-ancestors 'none'` および `X-Frame-Options: DENY` を返します。別のWebサーバーを使う場合も同じヘッダーを設定してください。
+
 ### 1. W3C CSP 違反レポートの受信
 
 HTTP レスポンスヘッダーに以下を追加するだけで、ブラウザが自動的に `collector.php` にレポートを送信します：

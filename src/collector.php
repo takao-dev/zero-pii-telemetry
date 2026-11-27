@@ -133,9 +133,9 @@ if (!extension_loaded('pdo_sqlite')) {
     exit;
 }
 
-// Verify Data Directory Write Permissions
-if (!is_writable($dataDir)) {
-    error_log('dash collector: data directory is not writable by web server user: ' . $dataDir);
+// Verify actual create/write access; mode-bit probes are not reliable on every supported platform.
+if (!telemetry_directory_writable($dataDir)) {
+    error_log('dash collector: data directory write probe failed: ' . $dataDir);
     http_response_code(500);
     exit;
 }

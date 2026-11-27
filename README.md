@@ -95,6 +95,8 @@ Data is persisted safely in the `telemetry-data` Docker volume.
 
 ### 1. CSP Header (`Content-Security-Policy`)
 
+The built-in Docker PHP server and Apache `.htaccess` configuration send `frame-ancestors 'none'` and `X-Frame-Options: DENY` for the dashboard and APIs. If you use another web server, configure the same response headers there.
+
 Add the report directive to your web server or HTML headers:
 
 ```http
